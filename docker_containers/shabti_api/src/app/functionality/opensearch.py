@@ -6,6 +6,9 @@ from opensearchpy import AsyncOpenSearch
 MAPPING_INDEX_NAME = "collection_mappings"
 FILES_INDEX_NAME = "file_mappings"
 OPENSEARCH_MAX_RESULTS = 10000
+# the embeddings model's output size: an index built at one dimension cannot accept vectors of
+# another, so swapping the model without changing this silently breaks indexing
+VECTOR_DIMENSION = 768
 
 _clients: dict[asyncio.AbstractEventLoop, AsyncOpenSearch] = {}
 
@@ -49,7 +52,7 @@ async def create_collection_index(collection_id):
             "properties": {
                 "document_vector": {
                     "type": "knn_vector",
-                    "dimension": 768,
+                    "dimension": VECTOR_DIMENSION,
                     "method": {
                         "name": "hnsw",
                         "space_type": "cosinesimil",
@@ -297,6 +300,10 @@ async def get_opensearch_documents(
             },
         }
         if filter_document_type:
+            # a bool with nothing but `should` requires one of them to match, but adding a filter
+            # drops that requirement to zero and leaves the search clauses only scoring what the
+            # filter already let through. saying so explicitly keeps the search a search
+            body["query"]["bool"]["minimum_should_match"] = 1
             body["query"]["bool"]["filter"] = [
                 {"terms": {"media_type": filter_document_type}}
             ]

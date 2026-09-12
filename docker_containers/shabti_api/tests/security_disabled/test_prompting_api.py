@@ -47,3 +47,37 @@ async def test_prompt_without_a_loaded_chat_model(
     finally:
         async for _ in load_model(loaded_chat_model):
             pass
+
+
+# the task, persona and enhancer checks are unit tested against the validator itself; these two are
+# here to show it is actually wired to the route, and that a bad request is refused with a status
+# rather than part way through a stream that has already started
+async def test_prompt_with_an_unknown_task(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    response = shabti_client.post(
+        "/prompt",
+        json={
+            "collection_id": shabti_collection_id,
+            "task": "not-a-task",
+            "user_input": "What does the word prompting mean?",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Requested task not found"
+
+
+async def test_prompt_with_an_unknown_persona(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    response = shabti_client.post(
+        "/prompt",
+        json={
+            "collection_id": shabti_collection_id,
+            "task": "question",
+            "persona": "not-a-persona",
+            "user_input": "What does the word prompting mean?",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Requested persona not found"

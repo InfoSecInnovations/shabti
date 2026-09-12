@@ -4,7 +4,7 @@ import pytest
 from shabti_types import IngestInfo
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def ingest_and_wait(shabti_client):
     """POST an ingest and block until it is over, returning the response and terminal state.
 
@@ -15,6 +15,9 @@ def ingest_and_wait(shabti_client):
 
     Both this and the follow-up listing rely on a finished ingest staying queryable - a small text
     file is done well before either request lands.
+
+    Session scoped because it holds no per-test state: a fixture that builds a collection once for
+    a whole module needs to ingest into it, and could not ask for a function scoped fixture.
     """
 
     def run(method: str, url: str, **kwargs) -> tuple[object, IngestInfo | None, list]:
@@ -36,7 +39,7 @@ def ingest_and_wait(shabti_client):
     return run
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def document_ids_of():
     """The document ids an ingest produced, in the order its items were queued."""
 

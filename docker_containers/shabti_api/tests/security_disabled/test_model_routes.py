@@ -46,8 +46,10 @@ async def test_loading_a_chat_model_keeps_the_embeddings_model(
     shabti_client, loaded_chat_model
 ):
     embeddings_models = (await get_models(tags=["embeddings"]))["data"]
-    if not embeddings_models:
-        pytest.skip("no embeddings model is installed")
+    # asserted rather than skipped over: the harness writes the model selection itself and will not
+    # build one without an embeddings model, so none being installed means the stack is broken, and
+    # a skip would report that as the same green summary as a working one
+    assert embeddings_models, "no embeddings model is installed"
     embeddings_id = embeddings_models[0]["id"]
     async for _ in load_model(embeddings_id):
         pass
