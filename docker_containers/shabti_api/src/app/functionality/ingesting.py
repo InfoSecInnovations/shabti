@@ -2,7 +2,7 @@ from .opensearch_ingesting import insert
 from isi_util.relay import relay
 from shabti_types import DocumentIngestInfo, DocumentInfo, UserInfo
 from collections.abc import AsyncGenerator
-from ..shabti_logging import log_action, log_user_action_as, logging_enabled
+from ..shabti_logging import log_user_action_as, logging_enabled
 from .document_collections import get_collection_info
 from .opensearch import get_document
 
@@ -39,20 +39,12 @@ def insert_document(
             f"Ingest document with ID {last.document_id} "
             f"into collection with ID {collection_id}"
         )
-        if actor:
-            log_user_action_as(
-                actor,
-                "INSERT DOCUMENT",
-                message,
-                collection=collection_info.model_dump(),
-                document=document_info.model_dump(),
-            )
-        else:
-            await log_action(
-                "INSERT DOCUMENT",
-                message,
-                collection=collection_info.model_dump(),
-                document=document_info.model_dump(),
-            )
+        log_user_action_as(
+            actor,
+            "INSERT DOCUMENT",
+            message,
+            collection=collection_info.model_dump(),
+            document=document_info.model_dump(),
+        )
 
     return relay(insert(collection_id, stream, binary_path), after=log)

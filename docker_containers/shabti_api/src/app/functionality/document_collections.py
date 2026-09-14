@@ -39,7 +39,7 @@ from shabti_types import (
     InvalidUserError,
     DocumentList,
 )
-from ..shabti_logging import log_user_action, log_action, logging_enabled
+from ..shabti_logging import log_user_action, logging_enabled
 import aiofiles.os
 import os
 
@@ -155,6 +155,8 @@ async def create_collection(
         await create_index_mapping(resource_id, display_name)
     await create_collection_index(resource_id)
     print(f"created {location or ''} collection {display_name} with ID {resource_id}")
+    # the branch stays because it decides the return type, but it only builds the value and the
+    # message now: both shapes log through the same call
     if auth_enabled():
         info = AuthzCollectionInfo(
             collection_name=display_name,
@@ -162,21 +164,14 @@ async def create_collection(
             location=location,
             owner=UserInfo(user_id=owner_id, username=get_username(owner_id)),
         )
-        await log_user_action(
-            token,
-            "CREATE COLLECTION",
-            f"Create {location} collection {display_name}",
-            collection=info.model_dump(),
-        )
-        return info
+        message = f"Create {location} collection {display_name}"
     else:
         info = CollectionInfo(collection_name=display_name, collection_id=resource_id)
-        await log_action(
-            "CREATE COLLECTION",
-            f"Create collection {display_name}",
-            collection=info.model_dump(),
-        )
-        return info
+        message = f"Create collection {display_name}"
+    await log_user_action(
+        token, "CREATE COLLECTION", message, collection=info.model_dump()
+    )
+    return info
 
 
 async def delete_collection(token, collection_id):
@@ -194,19 +189,12 @@ async def delete_collection(token, collection_id):
     for file_path in file_paths:
         await aiofiles.os.remove(os.path.join(os.getenv("SHABTI_FILES_DIR"), file_path))
     print(f"deleted collection with ID {collection_id}")
-    if auth_enabled():
-        await log_user_action(
-            token,
-            "DELETE COLLECTION",
-            f"Delete collection with ID {collection_id}",
-            collection=info.model_dump(),
-        )
-    else:
-        await log_action(
-            "DELETE COLLECTION",
-            f"Delete collection with ID {collection_id}",
-            collection=info.model_dump(),
-        )
+    await log_user_action(
+        token,
+        "DELETE COLLECTION",
+        f"Delete collection with ID {collection_id}",
+        collection=info.model_dump(),
+    )
     return info
 
 
@@ -282,28 +270,20 @@ async def delete_document(token, collection_id, document_id):
             )
         except FileNotFoundError:
             pass
+    # still guarded, even though the logging function checks too: arguments are evaluated eagerly,
+    # so doc_info is None here when logging is off and the collection lookup is a Keycloak or
+    # OpenSearch round trip an unlogged delete shouldn't pay for
     if logging_enabled():
-        if auth_enabled():
-            await log_user_action(
-                token,
-                "DELETE DOCUMENT",
-                f"Deleted document with ID {document_id} from collection with ID {collection_id}",
-                collection=(await get_collection_info(collection_id)).model_dump(),
-                document={
-                    **doc_info.model_dump(),
-                    "deleted_element_count": info.deleted_element_count,
-                },
-            )
-        else:
-            await log_action(
-                "DELETE DOCUMENT",
-                f"Deleted document with ID {document_id} from collection with ID {collection_id}",
-                collection=(await get_collection_info(collection_id)).model_dump(),
-                document={
-                    **doc_info.model_dump(),
-                    "deleted_element_count": info.deleted_element_count,
-                },
-            )
+        await log_user_action(
+            token,
+            "DELETE DOCUMENT",
+            f"Deleted document with ID {document_id} from collection with ID {collection_id}",
+            collection=(await get_collection_info(collection_id)).model_dump(),
+            document={
+                **doc_info.model_dump(),
+                "deleted_element_count": info.deleted_element_count,
+            },
+        )
     return info
 
 

@@ -23,7 +23,7 @@ def logging_config():
             },
             "shabti": {
                 "()": UtcFormatter,
-                "format": "%(asctime)s %(levelname)s %(message)s %(name)",
+                "format": "%(asctime)s %(levelname)s %(message)s %(name)s",
                 "json_ensure_ascii": False,
                 "rename_fields": {
                     "levelname": "severity",

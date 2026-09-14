@@ -5,8 +5,7 @@ from .opensearch_prompting import get_context_from_opensearch
 from .opensearch import get_temp_file
 from .load_prompter_config import load_prompter_config
 import json
-from ..shabti_logging import log_action, log_user_action, logging_enabled
-from shabti_util import auth_enabled
+from ..shabti_logging import log_user_action, logging_enabled
 from .document_collections import get_collection_info
 from .models import get_loaded_chat_model
 
@@ -92,22 +91,12 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
                 "file_id": prompt_info.file_id,
                 "contents": source_file_contents,
             }
-        if auth_enabled():
-            await log_user_action(
-                token,
-                "QUERY",
-                f"User ran a prompt on collection with ID {prompt_info.collection_id}",
-                collection=(
-                    await get_collection_info(prompt_info.collection_id)
-                ).model_dump(),
-                prompt=prompt,
-            )
-        else:
-            await log_action(
-                "QUERY",
-                f"User ran a prompt on collection with ID {prompt_info.collection_id}",
-                collection=(
-                    await get_collection_info(prompt_info.collection_id)
-                ).model_dump(),
-                prompt=prompt,
-            )
+        await log_user_action(
+            token,
+            "QUERY",
+            f"User ran a prompt on collection with ID {prompt_info.collection_id}",
+            collection=(
+                await get_collection_info(prompt_info.collection_id)
+            ).model_dump(),
+            prompt=prompt,
+        )

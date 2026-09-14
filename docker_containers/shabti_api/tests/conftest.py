@@ -1,7 +1,11 @@
 import json
+import logging
+import logging.config
 
 import pytest
 from shabti_types import IngestInfo
+
+from ..logging_config import logging_config
 
 
 @pytest.fixture(scope="session")
@@ -47,3 +51,38 @@ def document_ids_of():
         return [item.info.document_id for item in info.items if item.info]
 
     return ids
+
+
+@pytest.fixture(scope="module")
+def log_file(tmp_path_factory):
+    """Logging on, and the real formatter and handler writing somewhere disposable.
+
+    Only the `shabti` logger is configured: applying the whole `logging_config()` would take
+    uvicorn's loggers, and a running TestClient's output with them. It still turns off propagation
+    for as long as it is up, so a module that also reads `caplog` has to do that before asking for
+    this.
+
+    Module scoped because the fixtures that drive a whole collection lifecycle to produce entries
+    are, and a module scoped fixture cannot ask for a function scoped one.
+    """
+    log_dir = tmp_path_factory.mktemp("logs")
+    # that scope also rules out the function scoped `monkeypatch` fixture
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("SHABTI_LOGGING_ENABLED", "True")
+        patch.setenv("SHABTI_LOG_DIR", str(log_dir))
+        config = logging_config()
+        logger = logging.getLogger("shabti")
+        handlers, level, propagate = logger.handlers[:], logger.level, logger.propagate
+        logging.config.dictConfig(
+            {
+                "version": 1,
+                "disable_existing_loggers": False,
+                "formatters": {"shabti": config["formatters"]["shabti"]},
+                "handlers": {"shabti": config["handlers"]["shabti"]},
+                "loggers": {"shabti": config["loggers"]["shabti"]},
+            }
+        )
+        yield log_dir / "shabti_log.json"
+        for handler in logger.handlers:
+            handler.close()
+        logger.handlers, logger.level, logger.propagate = handlers, level, propagate
