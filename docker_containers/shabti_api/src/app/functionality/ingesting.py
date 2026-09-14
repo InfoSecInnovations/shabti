@@ -8,7 +8,7 @@ from .opensearch import get_document
 
 
 def insert_document(
-    actor: UserInfo | None, collection_id, stream, binary_path=None
+    actor: UserInfo | None, collection_id, stream, binary_path=None, binary_hash=None
 ) -> AsyncGenerator[DocumentIngestInfo, None]:
     """Ingest one document, audit logging it once the stream finishes on its own.
 
@@ -47,4 +47,4 @@ def insert_document(
             document=document_info.model_dump(),
         )
 
-    return relay(insert(collection_id, stream, binary_path), after=log)
+    return relay(insert(collection_id, stream, binary_path, binary_hash), after=log)

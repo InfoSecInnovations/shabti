@@ -33,6 +33,7 @@ from .exceptions import (
     ModelNotFoundError as ModelNotFoundError,
     EmbeddingsError as EmbeddingsError,
     EmptyDocumentError as EmptyDocumentError,
+    DuplicateDocumentError as DuplicateDocumentError,
     ForbiddenUrlError as ForbiddenUrlError,
     CollectionNotFoundError as CollectionNotFoundError,
     IngestNotFoundError as IngestNotFoundError,

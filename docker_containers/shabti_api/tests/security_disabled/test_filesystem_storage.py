@@ -11,6 +11,8 @@ from ...src.app.functionality.document_collections import (
 filename = "test_doc.txt"
 file_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
 file_path = os.path.join(file_dir, filename)
+archive_name = "test_docs.zip"
+archive_members = {"test_doc.txt", "test_doc_2.txt", "prompt_test.md"}
 
 
 async def test_file_creation(shabti_client, shabti_collection_id, ingest_and_wait):
@@ -42,11 +44,18 @@ async def test_file_deletion_with_document(shabti_collection_id, shabti_document
 
 
 async def test_file_deletion_with_collection(
-    shabti_client, shabti_collection_id, ingest_and_wait
+    shabti_client, shabti_collection_id, ingest_and_wait, tmp_path
 ):
-    files = await aiofiles.os.listdir(file_dir)
-    for file in files:
-        with open(os.path.join(file_dir, file), "rb") as f:
+    # the archive and one file that is not in it. uploading the rest of the assets alongside it, as
+    # this used to, now puts each of them in the collection twice - the archive holds copies of all
+    # three - and the second copy of a file a collection already holds is refused. this is still
+    # the only test covering an expanded member's binary being deleted with its collection, which
+    # is why the archive has to be here and why something has to be uploaded directly beside it
+    direct = tmp_path / "not_in_the_archive.txt"
+    direct.write_text("A document that the test archive does not also contain.")
+    uploads = [os.path.join(file_dir, archive_name), str(direct)]
+    for upload in uploads:
+        with open(upload, "rb") as f:
             ingest_and_wait(
                 "POST",
                 f"/collections/{shabti_collection_id}/documents/files",
@@ -57,10 +66,9 @@ async def test_file_deletion_with_collection(
         await get_document_file_path(shabti_collection_id, doc.document_id)
         for doc in docs.documents
     ]
-    # the assets include an archive, which becomes one document per member and none of its own, so
-    # there are more documents here than there were files to upload. this is the only test that
-    # covers an expanded member's binary being deleted with its collection
-    assert len(paths) > len(files)
+    # the archive becomes one document per member and none of its own, so there are more documents
+    # here than there were files uploaded
+    assert len(paths) == len(archive_members) + 1
     assert all(paths)
     await delete_collection(None, shabti_collection_id)
     for path in paths:

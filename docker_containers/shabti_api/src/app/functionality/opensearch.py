@@ -61,12 +61,22 @@ async def create_collection_index(collection_id):
                     },
                 },
                 "page_id": {"type": "keyword"},
+                # written on every vector child but never mapped until now, so it was dynamically
+                # a `text` field and a term query on it would have been analysed
+                "doc_id": {"type": "keyword"},
                 "filename": {"type": "wildcard"},
                 "source": {"type": "wildcard"},
                 "media_type": {"type": "keyword"},
                 "ingest_date": {"type": "unsigned_long"},
                 "languages": {"type": "keyword"},
                 "text": {"type": "text"},
+                # what prompting collapses on, so it has to be a keyword with doc values: collapse
+                # refuses a `text` field, which is what dynamic mapping would have made of it
+                "text_hash": {"type": "keyword"},
+                # identical extracted text, so that ingesting the same document twice can be
+                # refused. a term query against a dynamically mapped one would *appear* to work,
+                # because a lowercase hex digest survives the standard analyzer as a single token
+                "content_hash": {"type": "keyword"},
                 "binary_path": {"type": "keyword"},
                 "page_number": {"type": "integer"},
                 "type": {"type": "keyword"},
@@ -343,6 +353,51 @@ async def get_opensearch_document_types(collection_id: str):
     return [
         bucket["key"] for bucket in response["aggregations"]["document_type"]["buckets"]
     ]
+
+
+async def find_duplicate_document(
+    collection_id: str, doc_id: str, content_hash: str, ingest_date: int
+) -> str | None:
+    """The document this one is a copy of, or nothing if this is the one to keep.
+
+    Two documents with identical content can be ingested at once, and nothing refreshes until each
+    of them finishes, so neither is guaranteed to see the other. The rule is that a document
+    withdraws only when another one with a strictly smaller `(ingest_date, _id)` exists. That is a
+    strict total order, so whichever way the two searches interleave they cannot both withdraw, and
+    a collection can never end up losing both copies - which is the property worth having, since
+    the alternative failure, one copy surviving, costs only disk.
+
+    `ingest_date` before `_id` so that in the ordinary case it is the document already in the
+    collection that is kept and the new arrival that is refused.
+
+    Sorted on `ingest_date` here and tie broken in Python: sorting on `_id` needs `_id` fielddata,
+    which loads the whole field into the heap and is deprecated.
+    """
+    client = get_client()
+    body = {
+        # only the smallest key matters, and nothing like this many documents can share one
+        # millisecond at the concurrency an ingest runs at
+        "size": 100,
+        "_source": {"includes": ["ingest_date"]},
+        "sort": [{"ingest_date": {"order": "asc"}}],
+        "query": {
+            "bool": {
+                "filter": [
+                    {"term": {"type": "document"}},
+                    {"term": {"content_hash": content_hash}},
+                ],
+                "must_not": [{"ids": {"values": [doc_id]}}],
+            }
+        },
+    }
+    response = await client.search(body=body, index=collection_id)
+    keys = [
+        (hit["_source"]["ingest_date"], hit["_id"]) for hit in response["hits"]["hits"]
+    ]
+    if not keys:
+        return None
+    smallest = min(keys)
+    return smallest[1] if smallest < (ingest_date, doc_id) else None
 
 
 async def delete_opensearch_document(collection_id: str, doc_id: str):

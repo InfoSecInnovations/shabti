@@ -21,6 +21,9 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 	() => {
 		const filename = "test_doc.txt";
 		const filePath = path.join(import.meta.dir, filename);
+		// a collection refuses a second copy of a file it already holds, so a test that wants
+		// two documents in one collection has to hand it two different ones
+		const otherFilePath = path.join(import.meta.dir, "prompt_test.md");
 		// prompting runs on whichever chat model is currently loaded, so we make sure
 		// there is one
 		let loadedChatModel: string;
@@ -168,7 +171,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 					}
 					documentIds.push(documentId);
 					for await (const item of await client.insertFiles(collectionId, [
-						filePath,
+						otherFilePath,
 					])) {
 						documentId = item.documentId;
 					}

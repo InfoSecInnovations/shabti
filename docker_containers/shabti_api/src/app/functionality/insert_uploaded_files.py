@@ -13,6 +13,7 @@ from keycloak import KeycloakAuthenticationError, KeycloakPostError
 from shabti_types import (
     DocumentIngestError,
     DocumentIngestInfo,
+    DuplicateDocumentError,
     EmptyDocumentError,
     UnsupportedFileError,
     UserInfo,
@@ -27,6 +28,7 @@ from .ingest_events import (
 )
 from .ingesting import insert_document
 from .loading import load_file
+from .opensearch import get_client
 from .save_uploads import SavedUpload, discard, file_path, save_binary
 from .settings import setting
 
@@ -119,12 +121,15 @@ def expand_zip(name: str, max_members: int, max_bytes: int) -> list[SavedUpload]
                 raise ValueError(f"archive holds more than {max_members} files")
             for info in entries:
                 with archive.open(info) as source:
-                    member, written = save_binary(source, remaining)
+                    member, written, digest = save_binary(source, remaining)
                 remaining -= written
                 filename = os.path.basename(info.filename)
                 members.append(
                     SavedUpload(
-                        item_id=member, filename=filename, label=filename or "upload"
+                        item_id=member,
+                        filename=filename,
+                        label=filename or "upload",
+                        binary_hash=digest,
                     )
                 )
     except Exception:
@@ -155,6 +160,19 @@ async def insert_uploaded_files(
 
     def job(entry: SavedUpload):
         async def factory():
+            # a get by the very id the document would be given, so a file the collection already
+            # holds costs one round trip rather than a Tika parse and a whole embedding pass. an
+            # optimisation only - `op_type=create` in `insert` is what makes this safe against two
+            # copies arriving at once, so this racing costs nothing
+            if await get_client().exists(index=collection_id, id=entry.binary_hash):
+                raise DuplicateDocumentError(
+                    source=entry.label,
+                    existing_document_id=entry.binary_hash,
+                    message=(
+                        f"{entry.label} is already in this collection as document "
+                        f"{entry.binary_hash}"
+                    ),
+                )
             # in the slot and in a thread like the parse below: reading a central directory is cheap
             # but it is still blocking file IO, and it has to happen per item so that a member which
             # is itself a zip gets the same treatment
@@ -171,7 +189,9 @@ async def insert_uploaded_files(
                     message="No content was able to be loaded from the file",
                     filename=entry.filename,
                 )
-            return insert_document(actor, collection_id, stream, entry.item_id)
+            return insert_document(
+                actor, collection_id, stream, entry.item_id, entry.binary_hash
+            )
 
         return factory
 
@@ -216,6 +236,13 @@ async def insert_uploaded_files(
                     continue
                 if isinstance(error, EmptyDocumentError):
                     yield failure(result.key, "EmptyDocumentError", error.message)
+                    await drop(result.key)
+                    continue
+                if isinstance(error, DuplicateDocumentError):
+                    # before the archive branch below, so a duplicate is never mistaken for a zip
+                    # variant Tika could not read. dropping the binary is right either way: this
+                    # document was rolled back, and the one that survives has a binary of its own
+                    yield failure(result.key, "DuplicateDocumentError", error.message)
                     await drop(result.key)
                     continue
                 members: list[SavedUpload] = []

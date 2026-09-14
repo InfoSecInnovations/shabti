@@ -45,6 +45,21 @@ class EmptyDocumentError(ShabtiError):
         self.source = source
 
 
+class DuplicateDocumentError(ShabtiError):
+    """The collection already holds this content, so this copy was rolled back.
+
+    Always raised with an explicit `message`: `ShabtiError` never calls `Exception.__init__`, so
+    `str(e)` on one of these is empty, and `DocumentIngestError.message` is a required string. The
+    winning document's id belongs in that message too, because there is nowhere else for an ingest
+    item's error to carry it.
+    """
+
+    def __init__(self, source="", existing_document_id="", message=""):
+        super().__init__(message, 409)
+        self.source = source
+        self.existing_document_id = existing_document_id
+
+
 class ForbiddenUrlError(ShabtiError):
     def __init__(self, url="", message=""):
         super().__init__(message, 403)

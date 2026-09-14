@@ -1,1 +1,1 @@
-This is not a real document, it's just a test.
+This is not a real document either, it's just a second test.

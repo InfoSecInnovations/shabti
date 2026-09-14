@@ -16,6 +16,7 @@ from ...src.app.functionality.insert_uploaded_files import (
     expand_zip,
     is_plain_archive,
 )
+from ...src.app.functionality.content_hash import binary_hasher
 from ...src.app.functionality.save_uploads import file_path
 
 assets = os.path.join(os.path.dirname(__file__), "..", "assets")
@@ -83,6 +84,19 @@ def test_expanding_an_archive_saves_every_member_as_its_own_upload(files_dir):
                 assert saved.read() == archive.read(member.filename)
     # dropping the archive is the reader's job, once its members are queued
     assert os.path.exists(file_path(name))
+
+
+def test_every_expanded_member_carries_a_hash_of_its_own_bytes(files_dir):
+    # each member becomes a document of its own, and that hash is the id it is given, so a member
+    # is deduplicated against the collection exactly as a directly uploaded file would be
+    name = staged_asset(files_dir, archive_name)
+    expanded = expand_zip(name, 100, 1000000)
+    with zipfile.ZipFile(os.path.join(assets, archive_name)) as archive:
+        for member in expanded:
+            hasher = binary_hasher()
+            hasher.update(archive.read(member.filename))
+            assert member.binary_hash == hasher.hexdigest()
+    assert len({member.binary_hash for member in expanded}) == len(expanded)
 
 
 def test_expanding_basenames_member_paths(files_dir):

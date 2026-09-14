@@ -8,6 +8,7 @@ import json
 from ..shabti_logging import log_user_action, logging_enabled
 from .document_collections import get_collection_info
 from .models import get_loaded_chat_model
+from .settings import setting
 
 
 async def run_prompt(token: None | str, prompt_info: PromptInfo):
@@ -37,7 +38,9 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
         source_file_contents = None
 
     context = await get_context_from_opensearch(
-        prompt_info.collection_id, 5, prompt_info.user_input
+        prompt_info.collection_id,
+        setting("SHABTI_PROMPT_REFERENCE_LIMIT"),
+        prompt_info.user_input,
     )
 
     if not len(context["sources"]):

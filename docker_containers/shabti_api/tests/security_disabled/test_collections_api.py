@@ -18,6 +18,21 @@ zip_path = os.path.join(os.path.dirname(__file__), "..", "assets", zip_filename)
 zip_members = {"test_doc.txt", "test_doc_2.txt", "prompt_test.md"}
 
 
+def distinct_uploads(tmp_path, count):
+    """`count` files holding the same document with a different line in each.
+
+    A collection refuses a second copy of a file it already holds, so a test about ingesting
+    several documents at once has to hand it several *different* documents or it stops being a
+    test about concurrency and becomes one about the duplicate check.
+    """
+    paths = []
+    for index in range(count):
+        path = tmp_path / f"upload_{index}.txt"
+        path.write_text(f"This is not a real document, it is just test number {index}.")
+        paths.append(path)
+    return paths
+
+
 def test_auth_setting():
     assert not auth_enabled()
 
@@ -248,9 +263,9 @@ async def test_delete_collection(shabti_client, shabti_collection_id):
 
 
 async def test_documents_ingest_in_parallel(
-    shabti_client, shabti_collection_id, ingest_and_wait
+    shabti_client, shabti_collection_id, ingest_and_wait, tmp_path
 ):
-    handles = [open(file_path, "rb") for _ in range(3)]
+    handles = [open(path, "rb") for path in distinct_uploads(tmp_path, 3)]
     try:
         response, ingest, lines = ingest_and_wait(
             "POST",
@@ -294,12 +309,12 @@ async def test_ingest_survives_a_detached_client(shabti_client, shabti_collectio
 
 
 async def test_ingests_beyond_the_cap_queue_rather_than_fail(
-    shabti_client, shabti_collection_id, monkeypatch
+    shabti_client, shabti_collection_id, monkeypatch, tmp_path
 ):
     monkeypatch.setenv("SHABTI_INGEST_MAX_ACTIVE_PER_OWNER", "1")
     ingest_ids = []
-    for _ in range(3):
-        with open(file_path, "rb") as f:
+    for path in distinct_uploads(tmp_path, 3):
+        with open(path, "rb") as f:
             response = shabti_client.post(
                 f"/collections/{shabti_collection_id}/documents/files",
                 files=[("files", f)],
@@ -317,7 +332,7 @@ async def test_ingests_beyond_the_cap_queue_rather_than_fail(
         await asyncio.sleep(0.5)
     assert [item["status"] for item in mine] == ["complete"] * 3
     docs = await get_documents(None, shabti_collection_id)
-    assert len([doc for doc in docs.documents if doc.filename == filename]) == 3
+    assert len(docs.documents) == 3
 
 
 async def test_a_finished_ingest_stays_readable(

@@ -46,6 +46,10 @@ DEFAULTS = {
     # expanding an archive is bounded by disk now that members stream to files rather than memory
     "SHABTI_INGEST_MAX_ZIP_MEMBERS": 100,
     "SHABTI_INGEST_MAX_ZIP_BYTES": 200000000,
+    # how many chunks a prompt is answered from. they are collapsed on their text, so this is a
+    # count of distinct references rather than of hits, and raising it costs context window as much
+    # as it costs retrieval time
+    "SHABTI_PROMPT_REFERENCE_LIMIT": 5,
 }
 
 

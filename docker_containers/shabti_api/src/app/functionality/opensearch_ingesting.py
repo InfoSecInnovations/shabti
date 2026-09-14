@@ -1,11 +1,21 @@
 import asyncio
 from contextlib import aclosing, suppress
 from functools import cache
+from opensearchpy.exceptions import ConflictError
 from opensearchpy.helpers import async_bulk
+from .content_hash import chunk_hash, document_hasher
 from .embeddings import create_embeddings, get_embeddings_model_id
 from .loaders.base_loader import ShabtiDocument, ShabtiPageStream
-from .opensearch import get_client, delete_opensearch_document
-from shabti_types import DocumentIngestInfo, EmptyDocumentError
+from .opensearch import (
+    get_client,
+    delete_opensearch_document,
+    find_duplicate_document,
+)
+from shabti_types import (
+    DocumentIngestInfo,
+    DuplicateDocumentError,
+    EmptyDocumentError,
+)
 from semantic_text_splitter import TextSplitter
 from tokenizers import Tokenizer
 
@@ -52,6 +62,7 @@ async def insert(
     collection_id: str,
     stream: ShabtiPageStream,
     binary_path: str | None = None,
+    binary_hash: str | None = None,
 ):
     """Embed and index a document's pages as the loader produces them.
 
@@ -68,6 +79,9 @@ async def insert(
     splitter = await asyncio.to_thread(get_splitter)
 
     label = stream.metadata.filename or stream.metadata.source
+    # fed page by page as they stream, so identifying the document costs one hasher rather than a
+    # second copy of its text
+    hasher = document_hasher()
     doc_id: str | None = None
     pending: asyncio.Task | None = None
     # the page whose write is in flight, which is also the next one to report progress for
@@ -75,17 +89,32 @@ async def insert(
 
     async def create_parent() -> str:
         additional = {"binary_path": binary_path} if binary_path else {}
-        return (
-            await client.index(
-                index=collection_id,
-                body={
-                    "type": "document",
-                    "child_item_to_document": "document",
-                    **vars(stream.metadata),
-                    **additional,
-                },
-            )
-        )["_id"]
+        # the uploaded bytes as the id, with op_type=create, so that a second copy of the same file
+        # is refused by OpenSearch itself: atomic, with no read before the write, so two uploads
+        # arriving together cannot both get in. a crawl has no bytes and keeps a generated id,
+        # which is what the content hash below covers instead
+        identity = {"id": binary_hash, "op_type": "create"} if binary_hash else {}
+        try:
+            return (
+                await client.index(
+                    index=collection_id,
+                    body={
+                        "type": "document",
+                        "child_item_to_document": "document",
+                        **vars(stream.metadata),
+                        **additional,
+                    },
+                    **identity,
+                )
+            )["_id"]
+        except ConflictError as e:
+            raise DuplicateDocumentError(
+                source=stream.metadata.source,
+                existing_document_id=binary_hash,
+                message=(
+                    f"{label} is already in this collection as document {binary_hash}"
+                ),
+            ) from e
 
     def split(page: ShabtiDocument.ShabtiPage) -> list[str]:
         # don't allow empty or whitespace chunks
@@ -118,6 +147,9 @@ async def insert(
                     },
                     "type": "vector",
                     "text": chunk,
+                    # what prompting collapses on, so that a chunk which appears in the index more
+                    # than once cannot take more than one slot in the reference window
+                    "text_hash": chunk_hash(chunk),
                     "document_vector": vect,
                     "page_id": page_id,
                     "doc_id": doc_id,
@@ -144,6 +176,7 @@ async def insert(
         # crawler down from there, and it has to happen when this loop ends however it ends
         async with aclosing(stream.pages) as source:
             async for page in source:
+                hasher.update(page.content.encode())
                 if doc_id is None:
                     # created on the first page rather than up front, so a source that turns out to
                     # be empty leaves nothing behind to clean up
@@ -161,11 +194,41 @@ async def insert(
             yield progress()
 
         if doc_id is None:
-            raise EmptyDocumentError(source=stream.metadata.source)
+            # with a message, like the crawl loader's: `ShabtiError` never calls
+            # `Exception.__init__`, so leaving it off is what put an empty string on the ingest
+            # item rather than a reason
+            raise EmptyDocumentError(
+                source=stream.metadata.source,
+                message=f"No content could be read from {label}",
+            )
+
+        # the parent was created on the first page, before any of the content had been seen, so
+        # the hash of it can only land as an update
+        content_hash = hasher.hexdigest()
+        await client.update(
+            index=collection_id,
+            id=doc_id,
+            body={"doc": {"content_hash": content_hash}},
+        )
 
         # nothing above refreshes, so this is what makes the document searchable and what the
         # vector and page counts read straight after an ingest depend on
         await client.indices.refresh(index=collection_id)
+
+        # after the refresh, so that a document which finished alongside this one is visible to the
+        # comparison rather than invisible to it. this catches what the id above cannot: a crawl,
+        # and the same content arriving as a different file
+        duplicate_of = await find_duplicate_document(
+            collection_id, doc_id, content_hash, stream.metadata.ingest_date
+        )
+        if duplicate_of:
+            raise DuplicateDocumentError(
+                source=stream.metadata.source,
+                existing_document_id=duplicate_of,
+                message=(
+                    f"{label} is already in this collection as document {duplicate_of}"
+                ),
+            )
 
         # after the refresh, not before: a consumer acting on `complete` has to be able to find the
         # document. this is also the last suspension point, so a stop delivered here still lands
