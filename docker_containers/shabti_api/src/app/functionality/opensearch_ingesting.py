@@ -101,6 +101,10 @@ async def insert(
                     body={
                         "type": "document",
                         "child_item_to_document": "document",
+                        # cleared once this document is finished and has been kept: until then
+                        # it is out of every listing and out of retrieval, so a half written
+                        # document is never shown and never quoted
+                        "ingesting": True,
                         **vars(stream.metadata),
                         **additional,
                     },
@@ -229,6 +233,16 @@ async def insert(
                     f"{label} is already in this collection as document {duplicate_of}"
                 ),
             )
+
+        # after the duplicate check rather than in the update above: a document about to withdraw
+        # must never be visible as a finished one, however briefly. refreshed because `complete`
+        # below is what tells a client the document can be found
+        await client.update(
+            index=collection_id,
+            id=doc_id,
+            body={"doc": {"ingesting": False}},
+            refresh=True,
+        )
 
         # after the refresh, not before: a consumer acting on `complete` has to be able to find the
         # document. this is also the last suspension point, so a stop delivered here still lands

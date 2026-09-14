@@ -9,6 +9,10 @@ OPENSEARCH_MAX_RESULTS = 10000
 # the embeddings model's output size: an index built at one dimension cannot accept vectors of
 # another, so swapping the model without changing this silently breaks indexing
 VECTOR_DIMENSION = 768
+# a document only exists as far as listing and retrieval are concerned once its ingest finished.
+# `must_not` on an "unfinished" flag rather than a filter on a "finished" one, so that documents
+# ingested before either existed, which carry neither, are not hidden by it
+INGESTING = {"term": {"ingesting": True}}
 
 _clients: dict[asyncio.AbstractEventLoop, AsyncOpenSearch] = {}
 
@@ -77,6 +81,11 @@ async def create_collection_index(collection_id):
                 # refused. a term query against a dynamically mapped one would *appear* to work,
                 # because a lowercase hex digest survives the standard analyzer as a single token
                 "content_hash": {"type": "keyword"},
+                # an ingest that hasn't finished, so a document being written is kept out of
+                # listings and out of retrieval. inverted rather than a `complete` flag so that
+                # documents ingested before this field existed, which carry neither, are not
+                # hidden by it
+                "ingesting": {"type": "boolean"},
                 "binary_path": {"type": "keyword"},
                 "page_number": {"type": "integer"},
                 "type": {"type": "keyword"},
@@ -271,7 +280,7 @@ async def get_opensearch_documents(
             filter.append({"terms": {"media_type": filter_document_type}})
         body = {
             "size": max_results or OPENSEARCH_MAX_RESULTS,
-            "query": {"bool": {"filter": filter}},
+            "query": {"bool": {"filter": filter, "must_not": [INGESTING]}},
         }
     else:
         body = {
@@ -279,6 +288,12 @@ async def get_opensearch_documents(
             "size": max_results or OPENSEARCH_MAX_RESULTS,
             "query": {
                 "bool": {
+                    # a bool whose only clauses are `should` requires one of them to match, but
+                    # anything else in there drops that requirement to zero and leaves the search
+                    # clauses only scoring what the rest already let through. saying so explicitly
+                    # keeps the search a search
+                    "minimum_should_match": 1,
+                    "must_not": [INGESTING],
                     "should": [
                         {
                             "bool": {
@@ -305,15 +320,11 @@ async def get_opensearch_documents(
                                 ]
                             }
                         },
-                    ]
+                    ],
                 }
             },
         }
         if filter_document_type:
-            # a bool with nothing but `should` requires one of them to match, but adding a filter
-            # drops that requirement to zero and leaves the search clauses only scoring what the
-            # filter already let through. saying so explicitly keeps the search a search
-            body["query"]["bool"]["minimum_should_match"] = 1
             body["query"]["bool"]["filter"] = [
                 {"terms": {"media_type": filter_document_type}}
             ]
@@ -328,7 +339,14 @@ async def get_opensearch_documents(
     hits = response["hits"]["hits"]
     counts = await get_document_counts(collection_id, [hit["_id"] for hit in hits])
     docs = [{**hit["_source"], "id": hit["_id"], **counts[hit["_id"]]} for hit in hits]
-    body = {"query": {"bool": {"filter": [{"term": {"type": "document"}}]}}}
+    body = {
+        "query": {
+            "bool": {
+                "filter": [{"term": {"type": "document"}}],
+                "must_not": [INGESTING],
+            }
+        }
+    }
     count_response = await client.count(body=body, index=collection_id)
 
     return {
@@ -347,12 +365,63 @@ async def get_opensearch_document_types(collection_id: str):
                 "terms": {"field": "media_type", "size": OPENSEARCH_MAX_RESULTS}
             }
         },
-        "query": {"bool": {"filter": {"term": {"type": "document"}}}},
+        "query": {
+            "bool": {
+                "filter": {"term": {"type": "document"}},
+                "must_not": [INGESTING],
+            }
+        },
     }
     response = await client.search(body=body, index=collection_id)
     return [
         bucket["key"] for bucket in response["aggregations"]["document_type"]["buckets"]
     ]
+
+
+async def get_ingesting_document_ids(collection_id: str) -> list[str]:
+    """The documents in this collection whose ingest hasn't finished.
+
+    Read as ids rather than left to a `has_parent` inside the kNN filter that needs them: a vector
+    child carries its own `doc_id` as a keyword, so excluding these is a `terms` clause the
+    collector can apply as it goes, where a join query per candidate is both slower and less
+    reliably honoured there. The list is small by construction - only what is being written right
+    now, with `sweep_ingesting_documents` having cleared whatever a crash left behind.
+    """
+    client = get_client()
+    body = {
+        "size": OPENSEARCH_MAX_RESULTS,
+        "_source": False,
+        "query": {"bool": {"filter": [{"term": {"type": "document"}}, INGESTING]}},
+    }
+    response = await client.search(body=body, index=collection_id)
+    return [hit["_id"] for hit in response["hits"]["hits"]]
+
+
+async def sweep_ingesting_documents() -> list[str]:
+    """Delete the documents an ingest never finished, across every collection.
+
+    The registry that rolls a partial document back lives in this process, so a container killed
+    mid-ingest leaves one behind with no way to reach it: hidden from listings by its flag, and
+    still holding its upload's hash as an id, so the same file can never be ingested again. Safe
+    at startup and only at startup - the API is a single uvicorn process whose registry is in
+    memory, so nothing can genuinely be in flight by the time this runs.
+
+    Across `*` rather than a collection at a time because the collections are Keycloak resources
+    when security is enabled and this has no token; the mapping and temp file indices carry
+    neither field, so they match nothing.
+    """
+    client = get_client()
+    body = {
+        "size": OPENSEARCH_MAX_RESULTS,
+        "_source": False,
+        "query": {"bool": {"filter": [{"term": {"type": "document"}}, INGESTING]}},
+    }
+    response = await client.search(body=body, index="*", ignore_unavailable=True)
+    hits = response["hits"]["hits"]
+    for hit in hits:
+        # the same removal a rollback makes, so the children go with the parent
+        await delete_opensearch_document(hit["_index"], hit["_id"])
+    return [hit["_id"] for hit in hits]
 
 
 async def find_duplicate_document(

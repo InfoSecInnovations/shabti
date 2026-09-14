@@ -1,6 +1,6 @@
 import asyncio
 from .embeddings import create_embeddings
-from .opensearch import get_client, get_document_counts
+from .opensearch import get_client, get_document_counts, get_ingesting_document_ids
 
 # the similarity floor a chunk has to clear to be a reference at all. this is quite a magic number,
 # tweak as needed!
@@ -12,8 +12,12 @@ async def get_context_from_opensearch(
 ):
     client = get_client()
 
-    # the embeddings server is reached with blocking requests, so it goes in a thread
-    embedding = await asyncio.to_thread(create_embeddings, user_input)
+    # the embeddings server is reached with blocking requests, so it goes in a thread, and the
+    # documents to keep out of the answer are read while it is in there rather than after it
+    embedding, ingesting = await asyncio.gather(
+        asyncio.to_thread(create_embeddings, user_input),
+        get_ingesting_document_ids(collection_id),
+    )
 
     query = {
         "size": reference_limit,
@@ -33,6 +37,16 @@ async def get_context_from_opensearch(
         "collapse": {"field": "text_hash"},
         "_source": {"includes": ["page_id", "text", "child_item_to_document"]},
     }
+
+    if ingesting:
+        # excluded in the query rather than dropped from its results, so a document being written
+        # costs an answer no references: `size` is how many an answer gets, and hits thrown away
+        # afterwards would quietly shrink it. `filter` is applied as the kNN collects, and is
+        # supported alongside `min_score` on the lucene engine this index uses. left off entirely
+        # when nothing is ingesting, which is the ordinary case
+        query["query"]["knn"]["document_vector"]["filter"] = {
+            "bool": {"must_not": [{"terms": {"doc_id": ingesting}}]}
+        }
 
     response = await client.search(body=query, index=collection_id)
 
@@ -69,7 +83,10 @@ async def get_context_from_opensearch(
     doc_metadata = {
         doc["_id"]: {**doc["_source"], "id": doc["_id"], **counts[doc["_id"]]}
         for doc in doc_response["docs"]
-        if doc.get("found")
+        # the filter above is what keeps the reference window full; this is what makes never
+        # quoting an unfinished document true rather than merely likely, for one whose first
+        # vectors became searchable in between the two reads
+        if doc.get("found") and not doc["_source"].get("ingesting")
     }
 
     texts = []
@@ -78,8 +95,9 @@ async def get_context_from_opensearch(
     for hit in hits:
         page = page_metadata.get(hit["page_id"])
         doc = doc_metadata.get(hit["child_item_to_document"]["parent"])
-        # a document deleted between the search and these lookups leaves its chunk with nothing to
-        # attribute it to, and an answer is better one reference short than failed outright
+        # a document deleted between the search and these lookups, or one that turned out to still
+        # be ingesting, leaves its chunk with nothing to attribute it to, and an answer is better
+        # one reference short than failed outright
         if page is None or doc is None:
             continue
         texts.append(hit["text"])

@@ -41,7 +41,7 @@ from .functionality.opensearch_ingesting import get_tokenizer
 from .functionality.user_settings import user_id
 from .shabti_logging import get_actor
 from .functionality.status import check_llm, check_opensearch
-from .functionality.opensearch import close_client
+from .functionality.opensearch import close_client, sweep_ingesting_documents
 from .functionality.run_prompt import run_prompt
 from .functionality.load_prompter_config import load_prompter_config
 from .functionality.upload_prompt_file import upload_prompt_file
@@ -73,6 +73,17 @@ async def lifespan(app: FastAPI):
     # not a reason to refuse to start
     with suppress(Exception):
         await asyncio.to_thread(get_tokenizer)
+    # documents an ingest was killed part way through: hidden from every listing by the flag they
+    # still carry, so nothing else can ever reach them to clean them up. not being able to sweep is
+    # no more a reason to refuse to start than the tokenizer above
+    try:
+        swept = await sweep_ingesting_documents()
+        if swept:
+            logging.getLogger("shabti").info(
+                "removed %d unfinished document(s) left by a previous run", len(swept)
+            )
+    except Exception:
+        logging.getLogger("shabti").exception("could not sweep unfinished documents")
     yield
     # before the client closes: the ingests winding down are rolling documents back through it, and
     # closing it under them would strand exactly the partial documents they are there to remove
