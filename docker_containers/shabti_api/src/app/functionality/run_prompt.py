@@ -69,13 +69,20 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
     ):
         try:
             obj = json.loads(x)
-            if "choices" in obj and "content" in obj["choices"][0]["delta"]:
-                yield PromptChunk(response=obj["choices"][0]["delta"]["content"])
+            # llama.cpp opens a stream with a role-announcement delta whose `content` is an
+            # explicit null, so the key being present says nothing about there being text to
+            # forward. The final delta, carrying only `finish_reason`, is empty for the same reason
+            content = obj.get("choices", [{}])[0].get("delta", {}).get("content")
+            if content:
+                yield PromptChunk(response=content)
                 if logging_enabled():
-                    response += obj["choices"][0]["delta"]["content"]
+                    response += content
         except json.decoder.JSONDecodeError as e:
+            # the sentinel that closes an OpenAI style stream, and the only line in it that was
+            # never JSON. `break` rather than `return`: the audit entry below is the last thing a
+            # prompt does, and returning here left it unwritten for every prompt that ran to the end
             if x.startswith("[DONE]"):
-                return
+                break
             raise e
 
     if logging_enabled():
