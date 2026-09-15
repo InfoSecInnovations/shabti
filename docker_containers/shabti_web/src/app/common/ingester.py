@@ -93,6 +93,11 @@ def ingester_server(
     # job still gets seen. the terminal listing travels with them, because by the time we come back
     # the API may have pruned the job or restarted, and the summary has to be right anyway
     pending_close: dict[str, IngestInfo] = {}
+    # ingests this session submitted, which is what `flashed` below must not pre-mark: a job we
+    # started has no history to skip, so every outcome on it is news - including one that had
+    # already failed by the first poll, which is what a duplicate does. it is refused by an id
+    # lookup, before the archive probe and before the file is parsed
+    submitted: set[str] = set()
     cancelling: set[str] = set()
     active_ingests: set[str] = set()
     polled_once = reactive.value(False)
@@ -140,19 +145,30 @@ def ingester_server(
             closable=False,
         )
         job_toasts[job.ingest_id] = toast
-        # a job met part way through - a reload during a long ingest - must not replay a bar and an
-        # error toast for every item that finished before this tab was open, so its history counts
-        # as already flashed. a job watched from its submission has nothing done yet
-        flashed[job.ingest_id] = {i.item_id for i in job.items if item_done(i)}
+        # a job met part way through - another tab, the CLI, or a reload during a long ingest -
+        # must not replay a bar and an error toast for every item that finished before this tab was
+        # open, so its history counts as already flashed. one this session submitted has no history
+        # to replay, and an item of it can already have failed by the time of the first poll
+        flashed[job.ingest_id] = (
+            set()
+            if job.ingest_id in submitted
+            else {i.item_id for i in job.items if item_done(i)}
+        )
         # the server before the toast goes up: it registers the Cancel button's handlers
         # synchronously, so the input exists by the time the client binds to it
         ingest_toast_server(job.ingest_id, client, job.ingest_id, toast, cancelling)
         await update_job_toast(job)
 
-    async def update_job_toast(job: IngestInfo):
+    def flash_item_errors(job: IngestInfo) -> set[str]:
+        """The items that finished since the last poll, each failure getting a toast of its own.
+
+        Separate from the progress toast because a job can be over before a poll ever saw it
+        running - one refused file is - and its failures are no less worth reporting for that.
+        Returned as well as acted on: the coloured bars flash the same set.
+        """
         done_now = {item.item_id for item in job.items if item_done(item)}
         # `item_done` only ever goes from false to true, so an item is flashed exactly once
-        flashing = done_now - flashed[job.ingest_id]
+        flashing = done_now - flashed.setdefault(job.ingest_id, set())
         flashed[job.ingest_id] = done_now
         for item in job.items:
             if item.item_id in flashing and item.error is not None:
@@ -163,6 +179,10 @@ def ingester_server(
                     type="danger",
                     duration_s=None,
                 )
+        return flashing
+
+    async def update_job_toast(job: IngestInfo):
+        flashing = flash_item_errors(job)
         rows, status = progress_rows(
             job,
             job.ingest_id in cancelling,
@@ -268,11 +288,18 @@ def ingester_server(
                         # the whole point of this
                         await update_job_toast(job)
                         pending_close[job.ingest_id] = job
-                elif first_poll and just_finished(job):
+                elif job.ingest_id not in seen_terminal and (
+                    job.ingest_id in submitted or (first_poll and just_finished(job))
+                ):
+                    # over before any poll saw it running, which one refused file is: no toast ever
+                    # went up for it, so this is the only chance its failures have to be seen
+                    flash_item_errors(job)
+                    flashed.pop(job.ingest_id, None)
                     announce_done(job)
                 if job.ingest_id in seen_terminal:
                     continue
                 seen_terminal.add(job.ingest_id)
+                submitted.discard(job.ingest_id)
                 # the first poll of a session sees up to an hour of finished jobs. refreshing for
                 # those would force the documents panel open on every single page load
                 if not first_poll and job.collection_id == selected_collection.get():
@@ -285,30 +312,37 @@ def ingester_server(
                 cancelling.discard(ingest_id)
                 flashed.pop(ingest_id, None)
                 pending_close.pop(ingest_id, None)
+                submitted.discard(ingest_id)
                 seen_terminal.add(ingest_id)
             active_ingests.clear()
             active_ingests.update(job.ingest_id for job in latest if is_active(job))
             polled_once.set(True)
 
     @reactive.extended_task
-    async def start_ingests(submissions: list[Submission]) -> list[str]:
+    async def start_ingests(
+        submissions: list[Submission],
+    ) -> tuple[list[str], list[str]]:
+        started = []
         errors = []
         for submission in submissions:
             try:
                 if submission.files:
-                    await client.start_files_ingest(
+                    ingest = await client.start_files_ingest(
                         submission.collection_id, submission.files
                     )
                 else:
-                    await client.start_urls_ingest(
+                    ingest = await client.start_urls_ingest(
                         submission.collection_id, submission.urls
                     )
+                # what tells the polling below that this job is ours, and so that nothing on it has
+                # been reported yet however far along it is by the time we first see it
+                started.append(ingest.ingest_id)
             except Exception as e:
                 # per submission, and anything at all: one failure must not take the rest of the
                 # queue with it, nor leave `submitting` stuck and block every later one. a denial
                 # arrives here now rather than on the first line of the stream this used to return
                 errors.append(submit_error_text(e))
-        return errors
+        return started, errors
 
     @reactive.effect
     def drain_submit_queue():
@@ -325,9 +359,10 @@ def ingester_server(
 
     @reactive.effect
     def start_ingests_effect():
-        errors = start_ingests.result()
+        started, errors = start_ingests.result()
         with reactive.isolate():
             submitting.set(False)
+            submitted.update(started)
         for message in errors:
             show_message(message, type="danger")
         # rather than waiting out the poll interval to show what was just submitted

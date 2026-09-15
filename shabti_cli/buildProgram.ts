@@ -2,11 +2,13 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import * as cliProgress from "cli-progress";
 import * as commander from "commander";
-import { UnsupportedFileError } from "@infosecinnovations/shabti-api-client";
+import {
+	DocumentIngestError,
+	UnsupportedFileError,
+} from "@infosecinnovations/shabti-api-client";
 import type { ShabtiAuthorizationClient } from "@infosecinnovations/shabti-api-client";
 import type { ShabtiClient } from "@infosecinnovations/shabti-api-client";
 import {
-	type DocumentIngestError,
 	type DocumentIngestInfo,
 	type PromptConfigInfo,
 } from "@infosecinnovations/shabti-api-client/dist/dataTypes";
@@ -81,7 +83,20 @@ export default async () => {
 		for await (const item of insertStream) {
 			if (item instanceof UnsupportedFileError) {
 				if (bar) bar.stop();
+				bar = undefined;
+				currentLabel = undefined;
 				console.log(item.message);
+				continue;
+			}
+			// anything else that failed: a duplicate, an empty document, a forbidden URL. it carries no
+			// `total` or `documentId`, so falling through to the bar below drove it with NaN and then
+			// claimed the file had been ingested, with an id of `undefined`
+			if (item instanceof DocumentIngestError) {
+				if (bar) bar.stop();
+				bar = undefined;
+				currentLabel = undefined;
+				const name = item.label ?? item.filename;
+				console.log(name ? `${name}: ${item.message}` : item.message);
 				continue;
 			}
 			if (currentLabel != item.label) {

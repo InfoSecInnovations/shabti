@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import zipfile
 from collections.abc import AsyncGenerator
@@ -294,6 +295,14 @@ async def insert_uploaded_files(
                     continue
                 if RAISE_EXCEPTIONS:
                     raise error
+                # the message below is a guess - this is whatever no branch above recognised - and
+                # the exception is discarded on the next line, so without this the only record of
+                # what actually went wrong is gone
+                logging.getLogger("shabti").error(
+                    "unrecognised ingest failure for %s",
+                    labels.get(result.key),
+                    exc_info=error,
+                )
                 yield failure(
                     result.key,
                     "UnsupportedFileError",

@@ -12,6 +12,7 @@ not deterministic.
 
 import os
 import secrets
+from contextlib import ExitStack
 
 import pytest
 import pytest_asyncio
@@ -244,6 +245,84 @@ async def test_two_different_files_are_both_ingested(
         f"/collections/{shabti_collection_id}/documents"
     ).json()
     assert documents["total_documents"] == 2
+
+
+def identical_uploads(tmp_path, count: int) -> list:
+    """`count` files holding the same bytes under different names.
+
+    Different names because a browser cannot offer the same file twice in one selection, so two
+    copies arriving together is always two names - and because identical names would make which
+    item an error belongs to unreadable in the assertions below.
+    """
+    with open(os.path.join(assets, duplicated), "rb") as f:
+        content = f.read()
+    paths = []
+    for index in range(count):
+        path = tmp_path / f"copy_{index}.txt"
+        path.write_bytes(content)
+        paths.append(path)
+    return paths
+
+
+def ingest_paths(ingest_and_wait, collection_id, paths):
+    with ExitStack() as stack:
+        return ingest_and_wait(
+            "POST",
+            f"/collections/{collection_id}/documents/files",
+            files=[("files", stack.enter_context(open(path, "rb"))) for path in paths],
+        )
+
+
+async def test_two_copies_of_one_file_in_one_batch_report_a_duplicate(
+    shabti_client, ingest_and_wait, shabti_collection_id, tmp_path
+):
+    """The other half of the refusal, and the one a batch takes.
+
+    Arriving together, both copies clear the cheap `exists` check before either document exists -
+    the whole point of `op_type=create` being what actually decides it - so the loser is refused
+    inside `insert` rather than before it was parsed. That is a different exception at a different
+    place from the sequential case above, and it has to reach the client saying the same thing:
+    reported as anything else it reads as "could not be loaded", which says nothing a user can act
+    on.
+    """
+    response, ingest, _ = ingest_paths(
+        ingest_and_wait, shabti_collection_id, identical_uploads(tmp_path, 2)
+    )
+    assert response.status_code == 201, response.text
+
+    errors = [item.error for item in ingest.items if item.error]
+    assert [error.error for error in errors] == ["DuplicateDocumentError"], errors
+    # the surviving document's id travels in the message, since an ingest item's error has no
+    # field of its own for it
+    assert errors[0].message
+    assert len([item for item in ingest.items if item.info and item.info.complete]) == 1
+
+    documents = shabti_client.get(
+        f"/collections/{shabti_collection_id}/documents"
+    ).json()
+    assert documents["total_documents"] == 1, documents
+
+
+async def test_a_batch_duplicate_leaves_the_surviving_document_intact(
+    shabti_client, ingest_and_wait, shabti_collection_id, tmp_path
+):
+    """Only the loser's binary is discarded, which is not obvious: the two copies share a hash.
+
+    The document that was kept records its own staged file as its `binary_path`, so cleaning up
+    after the refused copy by anything the two have in common would take the survivor's file with
+    it and leave a document that cannot be opened.
+    """
+    _, ingest, _ = ingest_paths(
+        ingest_and_wait, shabti_collection_id, identical_uploads(tmp_path, 2)
+    )
+    kept = [item for item in ingest.items if item.info and item.info.complete]
+    assert len(kept) == 1, ingest.items
+
+    response = shabti_client.get(
+        f"/files/{shabti_collection_id}/{kept[0].info.document_id}"
+    )
+    assert response.status_code == 200, response.text
+    assert response.content
 
 
 async def test_the_same_content_with_no_binary_to_compare_is_refused(

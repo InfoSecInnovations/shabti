@@ -105,6 +105,36 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 					docs.documents.some((document) => document.filename == filename),
 				).toBeTrue();
 			});
+			test("ingest a file the collection already holds", async () => {
+				// the refusal reaches the stream as a DocumentIngestError, which has no page count and no
+				// document id. it used to fall through to the progress bar, which drove it with NaN and
+				// then reported the file as ingested with an id of `undefined` - the opposite of true
+				const lines: string[] = [];
+				const log = jest
+					.spyOn(console, "log")
+					.mockImplementation((...args: unknown[]) => {
+						lines.push(args.map(String).join(" "));
+					});
+				try {
+					const program = await buildProgram();
+					await program.parseAsync(
+						["ingest", "file", filePath, "--collection", collectionId],
+						{ from: "user" },
+					);
+				} finally {
+					log.mockRestore();
+				}
+				const output = lines.join("\n");
+				expect(output).toInclude("already in this collection");
+				expect(output).not.toInclude("undefined");
+
+				const client = getClient();
+				const docs = await client.getDocuments(collectionId);
+				expect(
+					docs.documents.filter((document) => document.filename == filename)
+						.length,
+				).toBe(1);
+			});
 			test("ingest urls", async () => {
 				const urls = [
 					"https://www.scrapethissite.com/pages/forms/",

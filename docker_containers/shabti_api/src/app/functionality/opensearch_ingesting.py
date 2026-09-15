@@ -259,5 +259,11 @@ async def insert(
             with suppress(Exception):
                 await pending
         if doc_id is not None:
-            await delete_opensearch_document(collection_id, doc_id)
+            # suppressed so that a rollback failing cannot replace the reason the ingest failed:
+            # the caller reports the errors it recognises by type, and anything else reads as
+            # "could not be loaded", which tells nobody anything. what is left behind is still
+            # flagged `ingesting`, so it stays out of every listing and out of retrieval either
+            # way, and the sweep at the next start removes it
+            with suppress(Exception):
+                await delete_opensearch_document(collection_id, doc_id)
         raise e
