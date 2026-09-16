@@ -8,6 +8,7 @@ test_results/
 processed_test_runs/
 shabti_config/
 my-models.ini
+shabti-models.json
 
 # generated certificates
 self_signed_certificates

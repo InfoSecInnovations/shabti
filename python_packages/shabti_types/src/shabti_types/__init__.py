@@ -32,6 +32,8 @@ from .exceptions import (
     UnsupportedFileError as UnsupportedFileError,
     ModelNotFoundError as ModelNotFoundError,
     EmbeddingsError as EmbeddingsError,
+    EmbeddingsConfigError as EmbeddingsConfigError,
+    EmbeddingsModelMismatchError as EmbeddingsModelMismatchError,
     EmptyDocumentError as EmptyDocumentError,
     DuplicateDocumentError as DuplicateDocumentError,
     ForbiddenUrlError as ForbiddenUrlError,

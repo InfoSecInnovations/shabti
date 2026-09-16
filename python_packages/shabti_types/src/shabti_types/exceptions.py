@@ -77,3 +77,28 @@ class IngestNotFoundError(ShabtiError):
         # 404 for a foreign ingest as well as a missing one, so ids aren't enumerable
         super().__init__(message, 404)
         self.ingest_id = ingest_id
+
+
+class EmbeddingsConfigError(ShabtiError):
+    """The installer's record of the selected embeddings model is missing or unusable.
+
+    A 500 rather than a 400: nothing the caller sent is wrong, the installation is incomplete.
+    """
+
+    def __init__(self, model="", message=""):
+        super().__init__(message, 500)
+        self.model = model
+
+
+class EmbeddingsModelMismatchError(ShabtiError):
+    """The collection was indexed with a different embeddings model than the one now loaded.
+
+    Its vectors are not comparable with new ones, so ingesting into it would quietly corrupt
+    retrieval rather than fail. The embeddings model can only be chosen on a fresh install, so
+    this means something has been changed by hand.
+    """
+
+    def __init__(self, indexed_model="", current_model="", message=""):
+        super().__init__(message, 409)
+        self.indexed_model = indexed_model
+        self.current_model = current_model

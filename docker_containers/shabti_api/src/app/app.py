@@ -37,9 +37,13 @@ from .functionality.insert_uploaded_files import insert_uploaded_files
 from .functionality.insert_urls import insert_urls
 from .functionality.ingest_registry import IngestRegistry, IngestTask, stream_ingest
 from .functionality.save_uploads import save_uploads, discard
-from .functionality.opensearch_ingesting import get_tokenizer
 from .functionality.user_settings import user_id
 from .shabti_logging import get_actor
+from .functionality.embeddings import (
+    context_limit,
+    get_embeddings_model_id,
+    get_vector_dimension,
+)
 from .functionality.status import check_llm, check_opensearch
 from .functionality.opensearch import close_client, sweep_ingesting_documents
 from .functionality.run_prompt import run_prompt
@@ -68,14 +72,19 @@ from .dependencies.url_list_validator import UrlListValidator
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # the tokenizer is a download, and the first ingest would otherwise pay for it - now with
-    # several documents possibly racing to fetch it at once. not being able to reach it at boot is
-    # not a reason to refuse to start
+    # measuring the model's output size loads it, and creating the first collection would
+    # otherwise pay for that. not being able to reach the model at boot is not a reason to refuse
+    # to start
     with suppress(Exception):
-        await asyncio.to_thread(get_tokenizer)
+        model_id = await asyncio.to_thread(get_embeddings_model_id)
+        await asyncio.to_thread(get_vector_dimension)
+        # after the probe, which is what has the model loaded: its trained context is only reported
+        # for a running model, and reading it now is what makes the check on the configured chunk
+        # size live for the first ingest rather than the second
+        await asyncio.to_thread(context_limit, model_id)
     # documents an ingest was killed part way through: hidden from every listing by the flag they
     # still carry, so nothing else can ever reach them to clean them up. not being able to sweep is
-    # no more a reason to refuse to start than the tokenizer above
+    # no more a reason to refuse to start than the model above
     try:
         swept = await sweep_ingesting_documents()
         if swept:

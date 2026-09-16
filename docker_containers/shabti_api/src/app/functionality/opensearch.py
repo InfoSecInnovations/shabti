@@ -1,14 +1,13 @@
 import asyncio
 import os
 from opensearchpy import AsyncOpenSearch
+from shabti_types import EmbeddingsModelMismatchError
+from .embeddings import get_embeddings_model_id, get_vector_dimension
 
 
 MAPPING_INDEX_NAME = "collection_mappings"
 FILES_INDEX_NAME = "file_mappings"
 OPENSEARCH_MAX_RESULTS = 10000
-# the embeddings model's output size: an index built at one dimension cannot accept vectors of
-# another, so swapping the model without changing this silently breaks indexing
-VECTOR_DIMENSION = 768
 # a document only exists as far as listing and retrieval are concerned once its ingest finished.
 # `must_not` on an "unfinished" flag rather than a filter on a "finished" one, so that documents
 # ingested before either existed, which carry neither, are not hidden by it
@@ -50,13 +49,22 @@ async def close_client():
 async def create_collection_index(collection_id):
     client = get_client()
     collection_index_name = collection_id
+    # the embeddings model is fixed for an installation, but its dimension is whatever the model
+    # actually produces rather than something we can hardcode, and an index built at one dimension
+    # cannot accept vectors of another. both run in a thread because they reach the model over
+    # blocking HTTP
+    model_id = await asyncio.to_thread(get_embeddings_model_id)
+    dimension = await asyncio.to_thread(get_vector_dimension)
     collection_index_body = {
         "settings": {"index": {"knn": True}},
         "mappings": {
+            # what these vectors mean, so that ingesting into this index under a different model
+            # can be refused instead of quietly filling it with incomparable vectors
+            "_meta": {"embeddings_model": model_id, "vector_dimension": dimension},
             "properties": {
                 "document_vector": {
                     "type": "knn_vector",
-                    "dimension": VECTOR_DIMENSION,
+                    "dimension": dimension,
                     "method": {
                         "name": "hnsw",
                         "space_type": "cosinesimil",
@@ -93,10 +101,38 @@ async def create_collection_index(collection_id):
                     "type": "join",
                     "relations": {"document": "child_item"},
                 },
-            }
+            },
         },
     }
     await client.indices.create(index=collection_index_name, body=collection_index_body)
+
+
+async def check_embeddings_model(collection_id, model_id):
+    """Refuse to add vectors from a different model than the collection was built with.
+
+    The embeddings model can only be chosen on a fresh install, so a mismatch means something was
+    changed by hand. Vectors from two models aren't comparable, and nothing else would notice: the
+    dimension usually still matches, so OpenSearch accepts them and retrieval just quietly gets
+    worse. Indices created before `_meta` was written carry none, which is not a mismatch.
+    """
+    client = get_client()
+    mappings = await client.indices.get_mapping(index=collection_id)
+    indexed = (
+        mappings.get(collection_id, {})
+        .get("mappings", {})
+        .get("_meta", {})
+        .get("embeddings_model")
+    )
+    if indexed and indexed != model_id:
+        raise EmbeddingsModelMismatchError(
+            indexed_model=indexed,
+            current_model=model_id,
+            message=(
+                f"this collection was indexed with {indexed} but {model_id} is now loaded. "
+                "Vectors from the two models cannot be compared, so nothing more can be added "
+                "to it."
+            ),
+        )
 
 
 async def create_index_mapping(collection_id, collection_name):

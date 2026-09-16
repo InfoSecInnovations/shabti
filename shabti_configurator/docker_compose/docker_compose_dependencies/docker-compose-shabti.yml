@@ -17,6 +17,9 @@ services:
     volumes:
       - shabti-files:/opt/shabti_files
       - ./shabti_config:/opt/shabti_config
+      # the settings the installer recorded about the selected embeddings model. the directory
+      # rather than the file so that rewriting it is visible to a running container
+      - ./llama_models:/opt/shabti_models:ro
     restart: unless-stopped
   shabti-logging:
     extends: shabti

@@ -15,8 +15,8 @@ import math
 from ...src.app.functionality.embeddings import (
     create_embeddings,
     get_embeddings_model_id,
+    get_vector_dimension,
 )
-from ...src.app.functionality.opensearch import VECTOR_DIMENSION
 
 
 def cosine(a, b):
@@ -32,13 +32,17 @@ async def embed(text, model_id):
     return await asyncio.to_thread(create_embeddings, text, model_id)
 
 
+async def indexed_dimension():
+    return await asyncio.to_thread(get_vector_dimension)
+
+
 async def test_an_embeddings_model_is_installed(shabti_client):
     assert await embeddings_model_id()
 
 
 async def test_text_embeds_to_a_vector_of_the_indexed_dimension(shabti_client):
     vector = await embed("Shabti ingests documents.", await embeddings_model_id())
-    assert len(vector) == VECTOR_DIMENSION
+    assert len(vector) == await indexed_dimension()
     assert all(isinstance(value, (int, float)) for value in vector)
     # an all-zero vector has no direction to compare against, which is what a model that loaded but
     # produced nothing would return
@@ -50,7 +54,8 @@ async def test_a_batch_embeds_to_one_vector_each(shabti_client):
     chunks = ["the first chunk", "the second chunk", "the third chunk"]
     vectors = await embed(chunks, await embeddings_model_id())
     assert len(vectors) == len(chunks)
-    assert all(len(vector) == VECTOR_DIMENSION for vector in vectors)
+    dimension = await indexed_dimension()
+    assert all(len(vector) == dimension for vector in vectors)
 
 
 async def test_related_text_embeds_closer_than_unrelated_text(shabti_client):

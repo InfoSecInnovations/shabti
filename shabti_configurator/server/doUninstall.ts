@@ -5,7 +5,7 @@ import getEnvPath from "./getEnvPath";
 import logMessage from "./logMessage";
 import removeAllContainers from "./removeAllContainers";
 import stopWatchProcess from "./stopWatchProcess";
-import { getModelsIniPath } from "./writeModelsIni";
+import { getModelsIniPath, getShabtiModelsPath } from "./writeModelsIni";
 
 export default async function* (
 	deleteModels: boolean,
@@ -35,6 +35,7 @@ export default async function* (
 	// recursive because Docker creates a directory here if the containers were launched before
 	// the file existed
 	await rm(getModelsIniPath(), { force: true, recursive: true });
+	await rm(getShabtiModelsPath(), { force: true, recursive: true });
 	await rm(path.resolve("self_signed_certificates"), {
 		force: true,
 		recursive: true,

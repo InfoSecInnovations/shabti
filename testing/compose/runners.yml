@@ -45,6 +45,10 @@ services:
       # a full uv sync rebuild hangs off
       - ../../docker_containers/shabti_api/tests:/app/shabti/tests
       - ../../python_packages/isi_util/tests:/app/python_packages/isi_util/tests
+      # the embeddings model settings, mounted here for the same reason as the env above: this
+      # service is the shabti service rather than a client of it. writeTestModelsIni generates the
+      # file in here before any end-to-end type starts
+      - ../../shabti_configurator/docker_compose/docker_compose_dependencies/llama_models:/opt/shabti_models:ro
     restart: "no"
 
   pytest-python-client:

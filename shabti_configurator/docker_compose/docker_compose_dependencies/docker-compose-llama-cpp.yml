@@ -11,7 +11,10 @@ services:
     volumes:
       - llama-cpp-models:/models
       - ./llama_models/my-models.ini:/my-models.ini
-    command: ["--models-preset", "/my-models.ini", "--embeddings", "--port", "11434", "-ub", "256", "-b", "1024"]
+    # the batch sizes live in the preset file's global section rather than here: the router overlays
+    # its own command line arguments on top of every preset section, so a model which needs a larger
+    # physical batch than the default could never override one set here
+    command: ["--models-preset", "/my-models.ini", "--embeddings", "--port", "11434"]
   llama-cpp-cuda:
     extends: llama-cpp-cpu
     deploy:

@@ -1,23 +1,29 @@
 import asyncio
 from contextlib import aclosing, suppress
-from functools import cache
 from opensearchpy.exceptions import ConflictError
 from opensearchpy.helpers import async_bulk
 from .content_hash import chunk_hash, document_hasher
-from .embeddings import create_embeddings, get_embeddings_model_id
+from .embeddings import (
+    context_limit,
+    count_tokens,
+    create_embeddings,
+    get_embeddings_model_id,
+)
+from .embeddings_config import chunk_size
 from .loaders.base_loader import ShabtiDocument, ShabtiPageStream
 from .opensearch import (
     get_client,
+    check_embeddings_model,
     delete_opensearch_document,
     find_duplicate_document,
 )
 from shabti_types import (
     DocumentIngestInfo,
     DuplicateDocumentError,
+    EmbeddingsConfigError,
     EmptyDocumentError,
 )
 from semantic_text_splitter import TextSplitter
-from tokenizers import Tokenizer
 
 
 def get_field_type(python_type):
@@ -30,32 +36,48 @@ def get_field_type(python_type):
     return "keyword"
 
 
-@cache
-def get_tokenizer() -> tuple[str, int]:
-    """The downloaded tokenizer as JSON, plus the chunk capacity read off it.
+# how much of the previous chunk each chunk repeats, so a sentence split across a boundary is still
+# retrievable whole from one side of it
+CHUNK_OVERLAP = 50
 
-    The download is what's worth caching, not the object: `functools.cache` doesn't lock across the
-    wrapped call, so concurrent first calls would each fetch it, and a single cached `TextSplitter`
-    would hand one mutated `Tokenizer` to every embedding thread at once.
+
+def get_splitter(model_id: str) -> TextSplitter:
+    """A splitter that measures text with the embeddings model's own tokenizer.
+
+    The count comes from llama.cpp rather than from a tokenizer downloaded here, which is what lets
+    the embeddings model be swapped: the GGUF repositories the models are loaded from carry no
+    token config, so there is nothing to download that is guaranteed to match the running model.
+
+    The splitter asks for a size several times per chunk, so the counts are memoised for the
+    document being split and the connection underneath is held open. Built per document rather than
+    cached, so the memo is dropped with it instead of growing for the life of the process.
     """
-    tokenizer = Tokenizer.from_pretrained(
-        "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-    )
-    # read the capacity before clearing truncation, which sets `truncation` to None
-    capacity = tokenizer.truncation["max_length"]
-    # semantic-text-splitter >=0.31 reports the *truncated* token count for tokenizers with
-    # truncation enabled, so oversized text measures exactly `capacity` and is never split
-    tokenizer.no_truncation()
-    return tokenizer.to_str(), capacity
+    capacity = chunk_size(model_id)
+    limit = context_limit(model_id)
+    if limit and capacity > limit:
+        # caught here rather than left to llama.cpp, which would refuse the first oversized chunk
+        # partway through an ingest with an error about batch sizes that says nothing about which
+        # setting is wrong
+        raise EmbeddingsConfigError(
+            model=model_id,
+            message=(
+                f"chunk_size for {model_id} is {capacity} tokens, but the model was only trained "
+                f"on {limit}. Chunks longer than that cannot be embedded at all."
+            ),
+        )
+    if CHUNK_OVERLAP >= capacity:
+        raise ValueError(
+            f"chunk_size for {model_id} is {capacity}, which is not more than the "
+            f"{CHUNK_OVERLAP} token overlap between chunks"
+        )
+    sizes: dict[str, int] = {}
 
+    def size(text: str) -> int:
+        if text not in sizes:
+            sizes[text] = count_tokens(text, model_id)
+        return sizes[text]
 
-def get_splitter() -> TextSplitter:
-    # built per document rather than cached: parsing the tokenizer costs a fraction of embedding one
-    # page, and the alternative is several documents splitting through the same Rust-backed object
-    payload, capacity = get_tokenizer()
-    return TextSplitter.from_huggingface_tokenizer(
-        Tokenizer.from_str(payload), capacity, overlap=50
-    )
+    return TextSplitter.from_callback(size, capacity, overlap=CHUNK_OVERLAP)
 
 
 async def insert(
@@ -73,10 +95,11 @@ async def insert(
     vectors are still being written to OpenSearch.
     """
     client = get_client()
-    # both are per-document rather than per-page: the model listing is a round trip and the
-    # tokenizer is a download, and neither changes while one document is being ingested
+    # per-document rather than per-page: the model listing is a round trip and the model doesn't
+    # change while one document is being ingested
     model_id = await asyncio.to_thread(get_embeddings_model_id)
-    splitter = await asyncio.to_thread(get_splitter)
+    await check_embeddings_model(collection_id, model_id)
+    splitter = get_splitter(model_id)
 
     label = stream.metadata.filename or stream.metadata.source
     # fed page by page as they stream, so identifying the document costs one hasher rather than a
@@ -137,7 +160,7 @@ async def insert(
             )
         )["_id"]
         # flush per page rather than accumulating every vector for every page: a crawl or a large
-        # text file can be thousands of chunks of 768 floats. the rollback below deletes children
+        # text file can be thousands of vectors. the rollback below deletes children
         # by parent, so already flushed vectors are still cleaned up on failure.
         await async_bulk(
             client,
