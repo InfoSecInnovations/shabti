@@ -23,6 +23,8 @@ import packageJson from "./package.json";
 import getCurrentVersion from "./server/getCurrentVersion";
 import listCompatibleVersions from "./server/listCompatibleVersions.js";
 import currentIsLocal from "./server/currentIsLocal";
+import describeError from "./server/describeError";
+import installIsIncomplete from "./server/installIsIncomplete";
 
 const { values } = parseArgs({
 	args: Bun.argv,
@@ -38,6 +40,11 @@ const { values } = parseArgs({
 const devMode = !!values["dev-mode"];
 
 const app = new Hono();
+// anything thrown before the response starts streaming, a malformed form body being the realistic
+// one. Once a stream is open streamHtml owns its own errors and this is never reached
+app.onError((err, c) =>
+	c.redirect(`/?err=${encodeURIComponent(describeError(err, 400))}`),
+);
 const state: { watchProcess?: Bun.Subprocess } = {
 	watchProcess: undefined,
 };
@@ -65,6 +72,7 @@ app.get("/", async (c) => {
 	const currentVersion = await getCurrentVersion();
 	const isLocal = await currentIsLocal();
 	const localIsRunning = !!state.watchProcess;
+	const incomplete = await installIsIncomplete();
 	return await c.html(
 		<html>
 			<head>
@@ -75,6 +83,12 @@ app.get("/", async (c) => {
 				<h1>Shabti Configurator</h1>
 				<div id="form_errors" class="error"></div>
 				<div id="form_success" class="success"></div>
+				{incomplete ? (
+					<p class="error">
+						The last install didn't finish, so Shabti may not work. Install
+						again to fix it.
+					</p>
+				) : undefined}
 				<p>
 					This is a utility to install and configure Shabti AI, a tool made by{" "}
 					<a

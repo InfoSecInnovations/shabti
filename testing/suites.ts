@@ -74,6 +74,18 @@ export const SUITES: Suite[] = [
 		blurb: "the dependency pin auditor, with every registry stubbed",
 	},
 	{
+		id: "configurator",
+		testTypes: ["unit"],
+		service: "bun-tests",
+		runner: "bun",
+		// streamHtml.tsx needs shabti_configurator's own tsconfig for its jsxImportSource: the
+		// repository root's has none, so from /repo the JSX would look for react/jsx-runtime
+		workdir: "/repo/shabti_configurator",
+		target: () => "tests",
+		blurb:
+			"the configurator's error reporting, with the stream read in process",
+	},
+	{
 		id: "isi-util",
 		testTypes: ["unit"],
 		service: "pytest-api",

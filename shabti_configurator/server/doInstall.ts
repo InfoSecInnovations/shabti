@@ -17,6 +17,7 @@ import getDefaultModelSelection from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
 import getVersionData from "./getVersionData";
 import lockPythonDeps from "./lockPythonDeps";
+import { INCOMPLETE_KEY } from "./installIsIncomplete";
 
 export default async function* (
 	options: FormData,
@@ -36,6 +37,9 @@ export default async function* (
 		Object.entries(envs).forEach(([key, value]) => (process.env[key] = value));
 		return Bun.write(getEnvPath(), envfile.stringify(envs));
 	};
+	// written from the first updateEnv onwards and cleared at the very end, so a crash anywhere in
+	// between leaves the main page saying the install didn't finish rather than that Shabti is ready
+	envs[INCOMPLETE_KEY] = "True";
 	envs.WEB_HOST = options.get("web-host")?.toString() || "localhost";
 	envs.WEB_PORT = options.get("web-port")?.toString() || "15130";
 	envs.API_HOST = options.get("api-host")?.toString() || "localhost";
@@ -66,7 +70,7 @@ export default async function* (
 		const postgresPassword = crypto.randomBytes(25).toString("hex");
 		// TODO: validate password strength
 		envs.POSTGRES_DB_PASSWORD = postgresPassword;
-		updateEnv();
+		await updateEnv();
 		yield logMessage(
 			"getting OpenID credentials from Keycloak service. This can take a few minutes!",
 		);
@@ -167,5 +171,8 @@ export default async function* (
 		// in the development environment we stop the containers as the expectation is that they will be run in watch mode
 		await $`docker compose -f ./docker_compose/docker-compose-dev.yml stop`;
 	}
+	delete envs[INCOMPLETE_KEY];
+	delete process.env[INCOMPLETE_KEY];
+	await updateEnv();
 	console.log("Installation done\n");
 }

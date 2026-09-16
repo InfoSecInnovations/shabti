@@ -43,7 +43,9 @@ const password2El = document.getElementById(
 	"keycloak_password",
 ) as HTMLInputElement;
 const formSubmitEls = document.querySelectorAll(".install_button");
-const formEl = document.getElementById("install_form") as HTMLFormElement;
+const formEl = document.getElementById(
+	"install_form",
+) as HTMLFormElement | null;
 let passwordStatus: VNode = toVNode(
 	document.getElementById("password_status")!,
 );
@@ -64,6 +66,18 @@ const patchFormErrors = (contents: VNodeChildren) => {
 const patchFormSuccess = (contents: VNodeChildren) => {
 	formSuccess = patch(formSuccess, h("div#form_success.success", contents));
 };
+
+// painted before any of the wiring below, which is allowed to find the elements it works on
+// missing: a message the user has to see can't depend on the rest of the page being there
+const params = new URLSearchParams(window.location.search);
+const err = params.get("err");
+if (err == "invalid-form") patchFormErrors("Form data was invalid");
+// the same banner reports uninstall, model, settings and launch failures, and the messages name
+// what went wrong themselves
+else if (err) patchFormErrors([h("p", "An error occurred:"), h("p", err)]);
+const success = params.get("done");
+if (success) patchFormSuccess(success);
+window.history.replaceState(null, "", "/"); // delete the URL params after patching the page
 
 // the native multiple select needs ctrl-clicking and gives no indication that more than one
 // option can be picked, so we replace it with a tag style widget. Tom Select keeps the original
@@ -217,6 +231,7 @@ const checkPasswords = () => {
 if (password2El) password2El.oninput = checkPasswords;
 
 const setFormVisibility = () => {
+	if (!formEl) return; // the install form isn't on the page
 	const formData = new FormData(formEl);
 	const keycloakConfig = document.getElementById("keycloak_config");
 	if (formData.get("security_level") != "none") {
@@ -228,8 +243,10 @@ const setFormVisibility = () => {
 		enableSubmit();
 	}
 };
-setFormVisibility();
-formEl.onchange = setFormVisibility;
+if (formEl) {
+	setFormVisibility();
+	formEl.onchange = setFormVisibility;
+}
 
 wireMultiSelect("language_model");
 wireMultiSelect("manage_language_model");
@@ -260,12 +277,3 @@ if (document.getElementById("install_warning"))
 		"Are you sure you want to install Shabti over your existing installation?",
 		() => [],
 	);
-
-const params = new URLSearchParams(window.location.search);
-const err = params.get("err");
-if (err == "invalid-form") patchFormErrors("Form data was invalid");
-else if (err)
-	patchFormErrors([h("p", "Error occurred during installation:"), h("p", err)]);
-const success = params.get("done");
-if (success) patchFormSuccess(success);
-window.history.replaceState(null, "", "/"); // delete the URL params after patching the page

@@ -1,5 +1,6 @@
 import KcAdminClient from "@keycloak/keycloak-admin-client";
 import getEnvs from "./getEnvs";
+import { KeycloakUnavailableError } from "./errors";
 
 // an admin connection as the shabti-auth service account, which the realm grants realm-admin
 // so it can manage the realm's clients. The initial admin password is only used to bootstrap
@@ -28,5 +29,5 @@ export default async (attempts = 60, delayMs = 5000) => {
 			await Bun.sleep(delayMs);
 		}
 	}
-	throw lastError;
+	throw new KeycloakUnavailableError(attempts, { cause: lastError });
 };
