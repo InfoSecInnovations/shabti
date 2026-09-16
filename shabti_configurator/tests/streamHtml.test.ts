@@ -3,8 +3,18 @@ import { Hono } from "hono";
 import type { StreamingApi } from "hono/utils/stream";
 import streamHtml from "../server/streamHtml";
 
+/** the id the success block carries, which nothing else in the page does */
+const SUCCESS = 'id="shabti_done"';
+
+const scriptsIn = (body: string) =>
+	[...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+		([, contents]) => contents!,
+	);
+
 // the whole streamed document, which is where the verdict lives: the status is committed before
-// anything can go wrong, so the body is the only thing that tells the browser what happened
+// anything can go wrong, so the body is the only thing that tells the browser what happened.
+// `visible` drops the watchdog's template, whose contents the browser parks in an inert fragment
+// rather than rendering, so an assertion about what the user sees can't be satisfied by it
 const run = async (
 	func: (stream: StreamingApi) => Promise<void>,
 	endMessage?: string,
@@ -14,7 +24,12 @@ const run = async (
 		const app = new Hono();
 		app.get("/t", (c) => streamHtml(c, "Doing the thing", func, endMessage));
 		const res = await app.request("/t");
-		return { res, body: await res.text() };
+		const body = await res.text();
+		return {
+			res,
+			body,
+			visible: body.replace(/<template[\s\S]*?<\/template>/g, ""),
+		};
 	} finally {
 		spy.mockRestore();
 	}
@@ -24,14 +39,15 @@ const nothing = async () => {};
 
 describe("streamHtml", () => {
 	test("reports success only when the operation runs to the end", async () => {
-		const { body } = await run(nothing);
-		expect(body).toContain("done=Operation%20completed%20successfully.");
-		expect(body).not.toContain('class="error"');
+		const { body, visible } = await run(nothing);
+		expect(body).toContain(SUCCESS);
+		expect(body).toContain('data-message="Operation completed successfully."');
+		expect(visible).not.toContain('class="error"');
 	});
 
 	test("uses the caller's completion message", async () => {
 		const { body } = await run(nothing, "Shabti installed successfully.");
-		expect(body).toContain("done=Shabti%20installed%20successfully.");
+		expect(body).toContain('data-message="Shabti installed successfully."');
 	});
 
 	test("serves the page as HTML", async () => {
@@ -40,13 +56,13 @@ describe("streamHtml", () => {
 	});
 
 	test("shows a thrown error and reports no success", async () => {
-		const { body } = await run(async () => {
+		const { body, visible } = await run(async () => {
 			throw new Error("docker is not running");
 		});
-		expect(body).toContain("docker is not running");
-		expect(body).toContain('href="/"');
+		expect(visible).toContain("docker is not running");
+		expect(visible).toContain('href="/"');
 		expect(body).toContain("window.shabtiFinished = true;");
-		expect(body).not.toContain("done=");
+		expect(body).not.toContain(SUCCESS);
 	});
 
 	// hono's stream() ignores `throw undefined` outright and only console.errors anything else which
@@ -56,40 +72,51 @@ describe("streamHtml", () => {
 		["a string", "boom"],
 		["a plain object", { code: 1 }],
 	])("reports a failure when %s is thrown", async (_label, thrown) => {
-		const { body } = await run(async () => {
+		const { body, visible } = await run(async () => {
 			throw thrown;
 		});
-		expect(body).toContain('class="error"');
-		expect(body).not.toContain("done=");
+		expect(visible).toContain('class="error"');
+		expect(body).not.toContain(SUCCESS);
 	});
 
 	test("keeps the progress log when the operation fails part way through", async () => {
-		const { body } = await run(async (stream) => {
+		const { body, visible } = await run(async (stream) => {
 			for (const message of ["first", "second", "third"])
 				await stream.writeln(`<p>${message}</p>`);
 			throw new Error("boom");
 		});
 		for (const message of ["first", "second", "third"])
-			expect(body).toContain(message);
-		expect(body.indexOf("boom")).toBeGreaterThan(body.indexOf("third"));
-		expect(body).not.toContain("done=");
+			expect(visible).toContain(message);
+		expect(visible.indexOf("boom")).toBeGreaterThan(visible.indexOf("third"));
+		expect(body).not.toContain(SUCCESS);
 	});
 
-	// the watchdog carries the failure markup inside a script element, so an unescaped "</script>"
-	// or quote in it would end the script early and leave the page unable to report anything
-	test("writes a watchdog the browser can actually run", async () => {
+	// the scripts are written into the page verbatim, so a payload which doesn't parse would leave
+	// it unable to report anything at all
+	test("writes scripts the browser can actually run", async () => {
 		const { body } = await run(nothing);
-		const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
-			([, contents]) => contents!,
+		const scripts = scriptsIn(body);
+		expect(scripts.length).toBeGreaterThan(0);
+		for (const contents of scripts)
+			expect(() => new Function(contents)).not.toThrow();
+	});
+
+	// the interrupted message is cloned from a template and the completion message read off an
+	// attribute, so neither has to be escaped into script context to get to the browser
+	test("keeps every script payload free of interpolated data", async () => {
+		const { body } = await run(nothing, 'Done "now" <ok>');
+		for (const contents of scriptsIn(body)) {
+			expect(contents).not.toContain("Back to the Shabti Configurator");
+			expect(contents).not.toContain("Done");
+		}
+		// real markup, not entities: cloning the template has to yield elements rather than a
+		// text node showing the user HTML source
+		expect(body).toContain(
+			'<template id="shabti_interrupted"><p class="error">',
 		);
-		const watchdog = scripts.find((contents) =>
-			contents.includes("shabtiFinished = false"),
-		);
-		expect(watchdog).toBeDefined();
-		expect(() => new Function(watchdog!)).not.toThrow();
-		expect(watchdog).not.toContain("</");
-		// the markup really is in there, it's only the angle brackets which are escaped
-		expect(watchdog).toContain("Back to the Shabti Configurator");
+		expect(body).toContain("Back to the Shabti Configurator");
+		// hono escapes the attribute, so the quotes and angle brackets can't break out of it
+		expect(body).toContain('data-message="Done &quot;now&quot; &lt;ok&gt;"');
 	});
 
 	test("arms a failure the page can't silently escape", async () => {

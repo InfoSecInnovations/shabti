@@ -30,20 +30,40 @@ const finished = () => (
  * swallow their own failures, and the server can simply die. All of those used to leave a silently
  * truncated page, which the meta refresh that used to live here turned into a clean trip back to the
  * main page, indistinguishable from a successful install.
+ *
+ * The message rides along as markup in a template rather than as a string inside the script, so
+ * there's nothing to escape into script context and failureBlock stays the one definition of it.
  */
-const watchdog = async () => {
-	// the markup is escaped so it can't close the script element it's embedded in
-	const html = JSON.stringify(
-		await failureBlock(INTERRUPTED).toString(),
-	).replaceAll("<", "\\u003C");
-	return (
+const watchdog = () => (
+	<>
+		<template id="shabti_interrupted">{failureBlock(INTERRUPTED)}</template>
 		<script
 			dangerouslySetInnerHTML={{
-				__html: `window.shabtiFinished = false;addEventListener("load", () => {if (!window.shabtiFinished) document.body.insertAdjacentHTML("beforeend", ${html});});`,
+				__html: `window.shabtiFinished = false;addEventListener("load", () => {if (window.shabtiFinished) return;const template = document.getElementById("shabti_interrupted");if (template) document.body.append(template.content.cloneNode(true));});`,
 			}}
 		></script>
-	);
-};
+	</>
+);
+
+/**
+ * The message travels in an attribute, which hono escapes, rather than interpolated into the script.
+ * That leaves encodeURIComponent doing its actual job of building a query string in the browser,
+ * instead of doubling as the guard which keeps the message inside its JS string literal.
+ */
+const success = (endMessage?: string) => (
+	<>
+		<div
+			id="shabti_done"
+			hidden
+			data-message={endMessage || "Operation completed successfully."}
+		></div>
+		<script
+			dangerouslySetInnerHTML={{
+				__html: `window.shabtiFinished = true;const done = document.getElementById("shabti_done");if (done) window.location = "/?done=" + encodeURIComponent(done.dataset.message);`,
+			}}
+		></script>
+	</>
+);
 
 export default (
 	c: Context,
@@ -59,7 +79,7 @@ export default (
 				<>
 					<head>
 						<link rel="stylesheet" href="/style.css" />
-						{await watchdog()}
+						{watchdog()}
 					</head>
 					<p>{startMessage}</p>
 				</>
@@ -74,15 +94,7 @@ export default (
 		}
 		// only reachable by falling off the end of func, so nothing but a clean run reports success
 		await stream.writeln("Done! returning to main page!");
-		await stream.writeln(
-			await (
-				<script
-					dangerouslySetInnerHTML={{
-						__html: `window.shabtiFinished = true;window.location="/?done=${encodeURIComponent(endMessage || "Operation completed successfully.")}";`,
-					}}
-				></script>
-			),
-		);
+		await stream.writeln(await success(endMessage).toString());
 	});
 	resp.headers.set("Content-Type", "text/html; charset=UTF-8");
 	resp.headers.set("Transfer-Encoding", "chunked");
