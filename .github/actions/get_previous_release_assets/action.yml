@@ -16,21 +16,21 @@ runs:
     # a composite action has no secrets context, so the token is passed explicitly rather than relying
     # on the fetch action's own default
     - name: Get previous Windows release files
-      uses: dsaltares/fetch-gh-release-asset@aa2ab1243d6e0d5b405b973c89fa4d06a2d0fff7 # 1.1.2
+      uses: Resonance1584/fetch-gh-release-asset@c5a5e5c4c4fa20db7551e58b354bdfde09d13f3e # 1.1.2
       with:
         version: ${{ inputs.tag && format('tags/{0}', inputs.tag) || 'latest' }}
         token: ${{ github.token }}
         file: "shabti_win.zip"
         target: ./release_assets/shabti_win.zip
     - name: Get previous Linux release files
-      uses: dsaltares/fetch-gh-release-asset@aa2ab1243d6e0d5b405b973c89fa4d06a2d0fff7 # 1.1.2
+      uses: Resonance1584/fetch-gh-release-asset@c5a5e5c4c4fa20db7551e58b354bdfde09d13f3e # 1.1.2
       with:
         version: ${{ inputs.tag && format('tags/{0}', inputs.tag) || 'latest' }}
         token: ${{ github.token }}
         file: "shabti_linux.zip"
         target: ./release_assets/shabti_linux.zip
     - name: Get previous Mac release files
-      uses: dsaltares/fetch-gh-release-asset@aa2ab1243d6e0d5b405b973c89fa4d06a2d0fff7 # 1.1.2
+      uses: Resonance1584/fetch-gh-release-asset@c5a5e5c4c4fa20db7551e58b354bdfde09d13f3e # 1.1.2
       with:
         version: ${{ inputs.tag && format('tags/{0}', inputs.tag) || 'latest' }}
         token: ${{ github.token }}
