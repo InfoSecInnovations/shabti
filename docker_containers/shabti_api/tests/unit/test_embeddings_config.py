@@ -11,7 +11,11 @@ import pytest
 from shabti_types import EmbeddingsConfigError
 
 from ...src.app.functionality import embeddings_config
-from ...src.app.functionality.embeddings_config import chunk_size
+from ...src.app.functionality.embeddings_config import (
+    chunk_size,
+    document_prefix,
+    query_prefix,
+)
 
 
 @pytest.fixture
@@ -79,3 +83,33 @@ def test_a_failed_read_is_retried_rather_than_remembered(config):
     # exception, so the next call reads it again
     path.write_text(json.dumps({"embed-1": {"chunk_size": 128}}))
     assert chunk_size("embed-1") == 128
+
+
+def test_the_selected_model_carries_the_prefixes_it_wants(config):
+    # an asymmetric model was trained with an instruction on the query and nothing on the passages
+    config({"embed-1": {"chunk_size": 128, "query_prefix": "Represent this: "}})
+    assert query_prefix("embed-1") == "Represent this: "
+    assert document_prefix("embed-1") == ""
+
+
+def test_a_model_that_wants_a_prefix_on_both_sides_gets_both(config):
+    # e5 and nomic do, and the document one is part of what a stored vector means
+    config(
+        {
+            "embed-1": {
+                "chunk_size": 128,
+                "query_prefix": "search_query: ",
+                "document_prefix": "search_document: ",
+            }
+        }
+    )
+    assert query_prefix("embed-1") == "search_query: "
+    assert document_prefix("embed-1") == "search_document: "
+
+
+def test_no_prefix_is_an_answer_rather_than_an_error(config):
+    # unlike a missing chunk size, which cannot be guessed: a symmetric model wants no prefix at
+    # all, and that is the shipped model's case
+    config({"embed-1": {"chunk_size": 128}})
+    assert query_prefix("embed-1") == ""
+    assert document_prefix("embed-1") == ""

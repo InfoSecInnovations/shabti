@@ -58,3 +58,32 @@ def chunk_size(model_id: str) -> int:
             message=f"the settings for {model_id} in {CONFIG_PATH} carry no chunk_size",
         )
     return int(size)
+
+
+def _prefix(model_id: str, setting: str) -> str:
+    """One of the strings this model wants in front of its input, or nothing if it wants none.
+
+    Missing is an answer here, unlike a missing chunk size: a symmetric model takes no prefix at
+    all, which is the ordinary case and not something to refuse to run over.
+    """
+    return str(embeddings_config(model_id).get(setting) or "")
+
+
+def query_prefix(model_id: str) -> str:
+    """What goes in front of a search query.
+
+    An asymmetric model was trained with an instruction on the query and nothing on the passages,
+    and embedding a query without it costs retrieval quality with nothing to report.
+    """
+    return _prefix(model_id, "query_prefix")
+
+
+def document_prefix(model_id: str) -> str:
+    """What goes in front of a chunk being stored.
+
+    Rarer than the query prefix - it is empty for every model in the catalogue today - but models
+    like e5 and nomic want one on both sides, and this has to be in place before such a model is
+    selected: it is part of what a stored vector means, so introducing one later would make new
+    vectors incomparable to the ones already in an index.
+    """
+    return _prefix(model_id, "document_prefix")

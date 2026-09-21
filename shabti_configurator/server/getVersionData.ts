@@ -12,8 +12,10 @@ export default async (version: string) => {
 			},
 		})
 		.catch((err) => {
-			if (err.status == 404) return undefined;
-			throw err;
+			// if (err.status == 404) return undefined;
+			// throw err;
+			// TODO: catch specific error when there's no internet connection in addition to 404
+			return undefined;
 		});
 	if (!release) return undefined;
 	const componentsAsset = release.data.assets.find(

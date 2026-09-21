@@ -19,14 +19,22 @@ const supportsRelease = (version: string) => {
 
 export default async () => {
 	const octokit = new Octokit();
-	const releases = await octokit.paginate(octokit.rest.repos.listReleases, {
-		owner: "InfoSecInnovations",
-		repo: "shabti",
-		per_page: 100,
-		headers: {
-			"X-GitHub-Api-Version": "2026-03-10",
-		},
-	});
+	const releases = await octokit
+		.paginate(octokit.rest.repos.listReleases, {
+			owner: "InfoSecInnovations",
+			repo: "shabti",
+			per_page: 100,
+			headers: {
+				"X-GitHub-Api-Version": "2026-03-10",
+			},
+		})
+		.catch((rej) => {
+			// TODO: filter by error type
+			// if this failed, we might be operating offline
+			// Shabti should still be able to run offline
+			return undefined;
+		});
+	if (!releases) return;
 	const componentsAssets = releases
 		.map((release) =>
 			release.assets.filter((asset) => asset.name == "shabti-components.json"),

@@ -131,6 +131,89 @@ describe("the settings the API reads", () => {
 	});
 });
 
+/**
+ * An asymmetric model was trained with an instruction in front of a search query, and underperforms
+ * measurably without it. Nothing declares what that instruction is - the GGUF repositories carry no
+ * sentence-transformers config, and upstream it is inconsistently keyed and often missing for models
+ * that require one anyway - so it is curated in the catalogue, where the ini parser trims every
+ * value and cannot carry a newline. Quoting is what survives both.
+ */
+describe("the prefixes a model wants on its input", () => {
+	test("keep the trailing space the ini parser would have eaten", () => {
+		const { settings } = build({
+			chat: CHAT,
+			embed: {
+				...EMBED,
+				shabti_query_prefix:
+					'"Represent this sentence for searching relevant passages: "',
+			},
+		});
+		// the space is the point: without it the instruction runs into the question
+		expect(settings.embed.query_prefix).toBe(
+			"Represent this sentence for searching relevant passages: ",
+		);
+	});
+
+	test("carry a newline, which an ini line cannot hold literally", () => {
+		// how the instruct-style models write theirs
+		const { settings } = build({
+			chat: CHAT,
+			embed: {
+				...EMBED,
+				// what a catalogue author writes by hand; shown built here so the encoding is the
+				// point of the test rather than something to squint at
+				shabti_query_prefix: JSON.stringify("Instruct: Retrieve.\nQuery: "),
+			},
+		});
+		expect(settings.embed.query_prefix).toBe("Instruct: Retrieve.\nQuery: ");
+	});
+
+	test("can be set on the document side too", () => {
+		// e5 and nomic want one on both sides. it is part of what a stored vector means, so it has
+		// to be expressible before such a model is chosen rather than added to one already in use
+		const { settings } = build({
+			chat: CHAT,
+			embed: {
+				...EMBED,
+				shabti_query_prefix: '"search_query: "',
+				shabti_document_prefix: '"search_document: "',
+			},
+		});
+		expect(settings.embed).toEqual({
+			chunk_size: 128,
+			query_prefix: "search_query: ",
+			document_prefix: "search_document: ",
+		});
+	});
+
+	test("stay empty rather than becoming zero", () => {
+		// `Number("")` is 0, so reading every setting as a number if it looked like one would have
+		// handed the API a prefix of 0 to put in front of every query
+		const { settings } = build({
+			chat: CHAT,
+			embed: { ...EMBED, shabti_query_prefix: '""' },
+		});
+		expect(settings.embed.query_prefix).toBe("");
+	});
+
+	test("reject an unquoted prefix rather than trimming it", () => {
+		// the failure this replaces is silent: the prefix would arrive without its trailing space
+		// and retrieval would just be a bit worse
+		expect(() =>
+			build({
+				chat: CHAT,
+				embed: { ...EMBED, shabti_query_prefix: "Represent this sentence: " },
+			}),
+		).toThrow("shabti_query_prefix");
+	});
+
+	test("reject a chunk size that isn't a number", () => {
+		expect(() =>
+			build({ chat: CHAT, embed: { ...EMBED, shabti_chunk_size: "a lot" } }),
+		).toThrow("shabti_chunk_size");
+	});
+});
+
 describe("the files", () => {
 	const dirs: string[] = [];
 

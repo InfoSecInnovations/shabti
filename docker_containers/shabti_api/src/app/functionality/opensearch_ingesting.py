@@ -9,7 +9,7 @@ from .embeddings import (
     create_embeddings,
     get_embeddings_model_id,
 )
-from .embeddings_config import chunk_size
+from .embeddings_config import chunk_size, document_prefix
 from .loaders.base_loader import ShabtiDocument, ShabtiPageStream
 from .opensearch import (
     get_client,
@@ -51,24 +51,42 @@ def get_splitter(model_id: str) -> TextSplitter:
     The splitter asks for a size several times per chunk, so the counts are memoised for the
     document being split and the connection underneath is held open. Built per document rather than
     cached, so the memo is dropped with it instead of growing for the life of the process.
+
+    A model that wants a prefix on the text it stores has that prefix's tokens taken out of the
+    budget here, so that a chunk plus its prefix is still the chunk size everything else is sized
+    from - the physical batch the installer picks for the model is derived from that number.
     """
-    capacity = chunk_size(model_id)
+    configured = chunk_size(model_id)
+    prefix = document_prefix(model_id)
+    # `count_tokens` adds the model's special tokens to whatever it measures, so measuring the
+    # prefix on its own counts one or two of them that the combined text will only carry once. that
+    # reserves a token or two more than strictly needed, which is the direction to be wrong in
+    prefix_size = count_tokens(prefix, model_id) if prefix else 0
+    capacity = configured - prefix_size
+    if capacity <= 0:
+        raise EmbeddingsConfigError(
+            model=model_id,
+            message=(
+                f"document_prefix for {model_id} is {prefix_size} tokens, which leaves nothing of "
+                f"the {configured} token chunk_size for the text itself."
+            ),
+        )
     limit = context_limit(model_id)
-    if limit and capacity > limit:
+    if limit and configured > limit:
         # caught here rather than left to llama.cpp, which would refuse the first oversized chunk
         # partway through an ingest with an error about batch sizes that says nothing about which
         # setting is wrong
         raise EmbeddingsConfigError(
             model=model_id,
             message=(
-                f"chunk_size for {model_id} is {capacity} tokens, but the model was only trained "
+                f"chunk_size for {model_id} is {configured} tokens, but the model was only trained "
                 f"on {limit}. Chunks longer than that cannot be embedded at all."
             ),
         )
     if CHUNK_OVERLAP >= capacity:
         raise ValueError(
-            f"chunk_size for {model_id} is {capacity}, which is not more than the "
-            f"{CHUNK_OVERLAP} token overlap between chunks"
+            f"chunk_size for {model_id} is {configured}, leaving {capacity} tokens for text, which "
+            f"is not more than the {CHUNK_OVERLAP} token overlap between chunks"
         )
     sizes: dict[str, int] = {}
 
@@ -100,6 +118,9 @@ async def insert(
     model_id = await asyncio.to_thread(get_embeddings_model_id)
     await check_embeddings_model(collection_id, model_id)
     splitter = get_splitter(model_id)
+    # what this model wants in front of a stored chunk, which is model input only: the chunk is
+    # stored and hashed as it was written. empty for every model in the catalogue today
+    prefix = document_prefix(model_id)
 
     label = stream.metadata.filename or stream.metadata.source
     # fed page by page as they stream, so identifying the document costs one hasher rather than a
@@ -209,7 +230,11 @@ async def insert(
                     # be empty leaves nothing behind to clean up
                     doc_id = await create_parent()
                 chunks = await asyncio.to_thread(split, page)
-                vects = await asyncio.to_thread(create_embeddings, chunks, model_id)
+                vects = await asyncio.to_thread(
+                    create_embeddings,
+                    [f"{prefix}{chunk}" for chunk in chunks],
+                    model_id,
+                )
                 if pending:
                     await pending
                     yield progress()

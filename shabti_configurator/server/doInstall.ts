@@ -22,7 +22,7 @@ import { INCOMPLETE_KEY } from "./installIsIncomplete";
 export default async function* (
 	options: FormData,
 	selectedVersion: string,
-	defaultVersion: string,
+	defaultVersion: string | undefined,
 	state: { watchProcess?: Bun.Subprocess },
 	installVenv = true,
 ) {
@@ -92,15 +92,20 @@ export default async function* (
 		envs.KEYCLOAK_SERVICE_FILE = "docker-compose-blank.yml";
 	}
 	envs.ENVIRONMENT = selectedVersion == "local" ? "development" : "production";
-	envs.SHABTI_VERSION =
+	const newVersion =
 		selectedVersion == "local"
 			? existingVersion || defaultVersion
 			: selectedVersion;
-	const versionData = await getVersionData(envs.SHABTI_VERSION);
+	// defaultVersion can be null, we should only set an env var if not actually null
+	if (newVersion) envs.SHABTI_VERSION = newVersion;
+	const versionData =
+		envs.SHABTI_API_VERSION && (await getVersionData(envs.SHABTI_VERSION));
 	// if the version is a legacy version, the API and Web images will have the same tag as the overall version
 	// if it's a newer version, versionData will tell us which tags to look up
-	envs.SHABTI_API_VERSION = versionData?.apiVersion || envs.SHABTI_VERSION;
-	envs.SHABTI_WEB_VERSION = versionData?.webVersion || envs.SHABTI_VERSION;
+	envs.SHABTI_API_VERSION =
+		versionData?.apiVersion || envs.SHABTI_VERSION || "latest";
+	envs.SHABTI_WEB_VERSION =
+		versionData?.webVersion || envs.SHABTI_VERSION || "latest";
 	envs.SHABTI_LOCAL_VERSION = selectedVersion == "local" ? "True" : "False";
 	envs.SHABTI_COMPUTE = options.has("use_gpu") ? "cuda" : "cpu";
 	if (securityLevel == "demo") envs.IS_SECURITY_DEMO = "True";
@@ -147,7 +152,10 @@ export default async function* (
 	if (selectedVersion == "local") {
 		yield logMessage("updating Python lockfiles...");
 		await lockPythonDeps();
-		await $`docker compose -f ./docker_compose/docker-compose-dev.yml pull --ignore-buildable`;
+		// TODO: catch only if internet is offline
+		await $`docker compose -f ./docker_compose/docker-compose-dev.yml pull --ignore-buildable`.catch(
+			(rej) => undefined,
+		);
 		await $`docker compose -f ./docker_compose/docker-compose-dev.yml build`;
 		await $`docker compose -f ./docker_compose/docker-compose-dev.yml up -d`;
 		if (installVenv) {
@@ -159,7 +167,10 @@ export default async function* (
 			await configurePreCommit();
 		}
 	} else {
-		await $`docker compose -f ./docker_compose/docker-compose.yml pull`;
+		// TODO: catch only if internet is offline
+		await $`docker compose -f ./docker_compose/docker-compose.yml pull`.catch(
+			(rej) => undefined,
+		);
 		await $`docker compose -f ./docker_compose/docker-compose.yml up -d`;
 	}
 	if (securityLevel == "demo") {

@@ -11,10 +11,49 @@ import type { ModelSelection } from "../getDefaultModelSelection";
 // generated file doesn't misconfigure a model, it stops the LLM service from starting at all
 const SHABTI_PREFIX = "shabti_";
 
-// what a catalogue entry is allowed to tell Shabti about a model. checked for the same reason as
-// the options below, except that a typo in one of these wouldn't even stop the LLM service: the
-// setting would just quietly not be there when the API came to read it
-const SHABTI_KEYS = ["chunk_size"];
+// the ini parser hands back every value as a string, so each setting says how to read itself. a
+// blanket "number if it looks like one" would turn an empty prefix into the number 0, and a prefix
+// that happened to be all digits into a number the API would concatenate as one
+const asNumber = (raw: string, where: string) => {
+	const value = Number(raw);
+	if (raw.trim() === "" || Number.isNaN(value))
+		throw new HTTPException(400, {
+			message: `${where} is ${JSON.stringify(raw)}, which is not a number`,
+		});
+	return value;
+};
+
+// prefixes are written as JSON string literals in the catalogue because the ini parser trims every
+// value and cannot carry a newline, and the trailing space on something like "Represent this
+// sentence for searching relevant passages: " is part of the prefix. quoting makes the whitespace
+// explicit and a malformed one an error the installer reports rather than a wrong prefix nobody sees
+const asText = (raw: string, where: string) => {
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		value = undefined;
+	}
+	if (typeof value !== "string")
+		throw new HTTPException(400, {
+			message: `${where} is ${raw}, which is not a quoted string. Prefixes are written as JSON string literals, so that their spacing is visible: "a prefix: "`,
+		});
+	return value;
+};
+
+// what a catalogue entry is allowed to tell Shabti about a model, and how each one is read. checked
+// for the same reason as the options below, except that a typo in one of these wouldn't even stop
+// the LLM service: the setting would just quietly not be there when the API came to read it
+const SHABTI_KEYS: Record<string, (raw: string, where: string) => unknown> = {
+	chunk_size: asNumber,
+	// what the model wants in front of a search query and in front of a stored chunk. most modern
+	// embedding models are asymmetric and underperform measurably without the query one, and some
+	// (e5, nomic) want one on both sides. nothing declares them: the GGUF repositories carry no
+	// sentence-transformers config, and where one exists upstream it is inconsistently keyed and
+	// often absent for models that require a prefix anyway, so they are curated here
+	query_prefix: asText,
+	document_prefix: asText,
+};
 
 // which llama.cpp options a catalogue entry is allowed to set, checked so that a typo is reported
 // here, by the installer, rather than as a container that won't come up
@@ -81,15 +120,14 @@ const shabtiSettings = (modelName: string, modelData: Record<string, any>) =>
 		(acc, [key, value]) => {
 			if (!key.startsWith(SHABTI_PREFIX)) return acc;
 			const setting = key.slice(SHABTI_PREFIX.length);
-			if (!SHABTI_KEYS.includes(setting))
+			const read = SHABTI_KEYS[setting];
+			if (!read)
 				throw new HTTPException(400, {
 					message: `model ${modelName} sets ${key}, which is not a setting Shabti knows about`,
 				});
-			// the ini parser hands back every value as a string, and these are read as the numbers
-			// they are
 			return {
 				...acc,
-				[setting]: Number.isNaN(Number(value)) ? value : Number(value),
+				[setting]: read(String(value), `${key} for model ${modelName}`),
 			};
 		},
 		{} as Record<string, any>,

@@ -7,7 +7,11 @@ asserts on what would have gone over the wire. The live server is covered by the
 
 import pytest
 import requests
-from shabti_types import EmbeddingsError, ModelNotFoundError
+from shabti_types import (
+    EmbeddingsConfigError,
+    EmbeddingsError,
+    ModelNotFoundError,
+)
 
 from ...src.app.functionality import embeddings
 from ...src.app.functionality.embeddings import (
@@ -303,3 +307,44 @@ def test_a_known_context_limit_is_only_looked_up_once(calls):
     assert context_limit("embed-1") == 512
     assert context_limit("embed-1") == 512
     assert len(calls.gets) == 1
+
+
+def test_a_vector_of_nulls_names_the_model_rather_than_being_indexed(calls):
+    # llama.cpp writes NaN as JSON null, which is what a quantisation the hardware cannot compute
+    # produces. it answers 200 and the length is right, so nothing downstream notices until
+    # OpenSearch refuses the vector part way through an ingest
+    calls.post_response = FakeResponse(vectors([None, None]))
+    with pytest.raises(EmbeddingsConfigError) as raised:
+        create_embeddings("some text", "embed-1")
+    assert "embed-1" in raised.value.message
+    assert raised.value.model == "embed-1"
+    # the installation is pointed at a model it cannot use; nothing the caller sent is wrong
+    assert raised.value.status == 500
+
+
+def test_one_bad_value_in_a_batch_is_enough(calls):
+    # a whole page embeds in one call, and a vector that is only partly numbers is no more
+    # indexable than one that is none of them
+    calls.post_response = FakeResponse(vectors([0.1, 0.2], [0.3, None]))
+    with pytest.raises(EmbeddingsConfigError):
+        create_embeddings(["first chunk", "second chunk"], "embed-1")
+
+
+def test_an_infinite_value_is_refused_too(calls):
+    calls.post_response = FakeResponse(vectors([0.1, float("inf")]))
+    with pytest.raises(EmbeddingsConfigError):
+        create_embeddings("some text", "embed-1")
+
+
+def test_the_model_is_named_even_when_the_caller_did_not(calls):
+    # the ingest path passes the id in, the dimension probe does not, and a message that said
+    # "None returned a vector that is not made of numbers" would name nothing to go and change
+    calls.post_response = FakeResponse(vectors([None, None]))
+    with pytest.raises(EmbeddingsConfigError) as raised:
+        create_embeddings("some text")
+    assert "embed-1" in raised.value.message
+
+
+def test_a_good_vector_is_returned_unchanged(calls):
+    calls.post_response = FakeResponse(vectors([0.1, -0.2, 0.0]))
+    assert create_embeddings("some text", "embed-1") == [0.1, -0.2, 0.0]

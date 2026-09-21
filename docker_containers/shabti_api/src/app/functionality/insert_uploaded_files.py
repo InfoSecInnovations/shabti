@@ -15,7 +15,11 @@ from shabti_types import (
     DocumentIngestError,
     DocumentIngestInfo,
     DuplicateDocumentError,
+    EmbeddingsConfigError,
+    EmbeddingsError,
+    EmbeddingsModelMismatchError,
     EmptyDocumentError,
+    ModelNotFoundError,
     UnsupportedFileError,
     UserInfo,
 )
@@ -36,6 +40,17 @@ from .settings import setting
 # for debugging purposes we can set this to True and try to get more information about why an upload is failing
 # we make sure this doesn't accidentally get enabled in production
 RAISE_EXCEPTIONS = os.getenv("ENVIRONMENT") == "development" and False
+
+# nothing about the file: the embeddings model is missing, misconfigured, unusable or unreachable,
+# and every file in the batch is about to fail the same way. flattened into "could not be loaded"
+# these read as a batch of bad documents, which is the one thing they are not - the URL route
+# already reports them as themselves, for the same reason
+EMBEDDINGS_ERRORS = (
+    EmbeddingsConfigError,
+    EmbeddingsError,
+    EmbeddingsModelMismatchError,
+    ModelNotFoundError,
+)
 
 
 class DocumentLoadError(Exception):
@@ -237,6 +252,13 @@ async def insert_uploaded_files(
                     continue
                 if isinstance(error, EmptyDocumentError):
                     yield failure(result.key, "EmptyDocumentError", error.message)
+                    await drop(result.key)
+                    continue
+                if isinstance(error, EMBEDDINGS_ERRORS):
+                    # before the archive gate below, like the branches above it: a broken embeddings
+                    # server is not a zip variant Tika could not read, and probing it as one would
+                    # replace the reason with a guess
+                    yield failure(result.key, type(error).__name__, error.message)
                     await drop(result.key)
                     continue
                 if isinstance(error, DuplicateDocumentError):

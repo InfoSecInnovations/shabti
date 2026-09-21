@@ -1,8 +1,9 @@
+import math
 import requests
 import threading
 from contextlib import suppress
 from functools import cache
-from shabti_types import EmbeddingsError, ModelNotFoundError
+from shabti_types import EmbeddingsConfigError, EmbeddingsError, ModelNotFoundError
 from .models import llm_url
 
 # the splitter sizes every candidate chunk through /tokenize, which is hundreds of calls for one
@@ -124,6 +125,34 @@ def get_vector_dimension() -> int:
     return len(create_embeddings("dimension probe", get_embeddings_model_id()))
 
 
+def checked(vector, model_id: str):
+    """A vector, once it is known to be made of numbers.
+
+    A model can answer with a 200 and hand back a vector of nulls: llama.cpp writes NaN as JSON
+    null, which is what a quantisation the hardware cannot compute produces. Nothing downstream
+    notices - the dimension probe measures the length, which is right whatever the contents are -
+    so it reaches OpenSearch, which rejects it as a malformed knn_vector part way through an
+    ingest, and the reason never gets near the person who chose the model.
+
+    The pass costs a few hundred comparisons against a network round trip and a forward pass, and
+    `all` stops at the first bad value. The type check comes first because `math.isfinite(None)`
+    raises rather than returning False.
+    """
+    if vector and all(
+        isinstance(value, (int, float)) and math.isfinite(value) for value in vector
+    ):
+        return vector
+    raise EmbeddingsConfigError(
+        model=model_id,
+        # a 500 rather than a 502: the server is answering, it is the model this installation was
+        # pointed at that cannot be used, which is the thing to change
+        message=(
+            f"{model_id} returned a vector that is not made of numbers. The model is loaded but "
+            "cannot be computed as quantised - try a different quantisation of it."
+        ),
+    )
+
+
 def create_embeddings(text, model_id: str | None = None):
     # don't try to do embeddings on empty values
     if not isinstance(text, list) and not text.strip():
@@ -141,6 +170,7 @@ def create_embeddings(text, model_id: str | None = None):
         send("post", "/v1/embeddings", json=data),
         "creating embeddings",
     )
+    model = data["model"]
     if not isinstance(text, list):
-        return response["data"][0]["embedding"]
-    return [x["embedding"] for x in response["data"]]
+        return checked(response["data"][0]["embedding"], model)
+    return [checked(x["embedding"], model) for x in response["data"]]
