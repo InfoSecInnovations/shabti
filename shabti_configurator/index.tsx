@@ -21,7 +21,6 @@ import { UninstallForm } from "./server/uninstallForm";
 import validateInstallForm from "./server/validateInstallForm";
 import packageJson from "./package.json";
 import getCurrentVersion from "./server/getCurrentVersion";
-import listCompatibleVersions from "./server/listCompatibleVersions.js";
 import currentIsLocal from "./server/currentIsLocal";
 import describeError from "./server/describeError";
 import installIsIncomplete from "./server/installIsIncomplete";
@@ -48,7 +47,6 @@ app.onError((err, c) =>
 const state: { watchProcess?: Bun.Subprocess } = {
 	watchProcess: undefined,
 };
-const defaultVersion = (await listCompatibleVersions())?.[0];
 
 app.get("/style.css", async (c) =>
 	c.body(await file(css).text(), 201, {
@@ -192,7 +190,6 @@ app.post("/install", (c) =>
 				for await (const message of doInstall(
 					data,
 					data.get("version")!.toString(),
-					defaultVersion,
 					state,
 				)) {
 					await stream.writeln(await (<p>{message}</p>));

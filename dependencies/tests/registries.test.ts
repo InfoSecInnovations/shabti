@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { verdict } from "../catalogue";
 import { client } from "../http";
 import { npmCatalogue } from "../registries/npm";
@@ -8,7 +8,12 @@ import { type TagShape, shapeOf } from "../tag";
 import type { Catalogue, Dependency } from "../types";
 import { type Route, abbreviated, httpStub, simple } from "./stub";
 
-const offline = { retries: 0, sleep: async () => {}, now: () => 0 };
+// a canned failure is the answer under test, not something to wait out
+const offline = { retries: 0 };
+
+afterEach(() => {
+	mock.restore();
+});
 
 /** every one of the three hosts answers an unauthenticated request with this same shape of challenge */
 const CHALLENGE = {
@@ -35,10 +40,7 @@ describe("pypi", () => {
 		const stub = httpStub([
 			["https://pypi.org/simple/opensearch-py/", { body: simple(["3.0.0"]) }],
 		]);
-		await pypiCatalogue(
-			"OpenSearch.Py",
-			client({ http: stub.http, ...offline }),
-		);
+		await pypiCatalogue("OpenSearch.Py", client(offline));
 		expect(stub.urls()).toEqual(["https://pypi.org/simple/opensearch-py/"]);
 		expect(stub.headersOf(0).get("accept")).toBe(
 			"application/vnd.pypi.simple.v1+json",
@@ -46,7 +48,7 @@ describe("pypi", () => {
 	});
 
 	test("finds the latest stable and the prerelease above it", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/simple\/shiny/,
 				{
@@ -54,10 +56,7 @@ describe("pypi", () => {
 				},
 			],
 		]);
-		const catalogue = await pypiCatalogue(
-			"shiny",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await pypiCatalogue("shiny", client(offline));
 		expect(catalogue.latestStable?.version).toBe("1.7.0");
 		expect(catalogue.latestPrerelease?.version).toBe("1.8.0a1");
 		// ascending, so a report can count how far behind a pin is
@@ -71,7 +70,7 @@ describe("pypi", () => {
 	});
 
 	test("marks a version yanked only when every one of its files is", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/simple\/shiny/,
 				{
@@ -90,10 +89,7 @@ describe("pypi", () => {
 				},
 			],
 		]);
-		const catalogue = await pypiCatalogue(
-			"shiny",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await pypiCatalogue("shiny", client(offline));
 		const withdrawn = Object.fromEntries(
 			catalogue.releases.map((release) => [release.version, release.withdrawn]),
 		);
@@ -105,7 +101,7 @@ describe("pypi", () => {
 	});
 
 	test("notes a project that is no longer active", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/simple\//,
 				{
@@ -115,25 +111,19 @@ describe("pypi", () => {
 				},
 			],
 		]);
-		const catalogue = await pypiCatalogue(
-			"x",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await pypiCatalogue("x", client(offline));
 		expect(catalogue.notes).toContain("the project is marked archived on PyPI");
 	});
 
 	test("counts unreadable versions once instead of dropping them silently", async () => {
 		// 2020.05.01-beta would not do here: it looks legacy but parses cleanly as 2020.5.1b0
-		const stub = httpStub([
+		httpStub([
 			[
 				/simple\//,
 				{ body: simple(["1.0", "not-a-version", "1.0.0-SNAPSHOT"]) },
 			],
 		]);
-		const catalogue = await pypiCatalogue(
-			"x",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await pypiCatalogue("x", client(offline));
 		expect(catalogue.releases).toHaveLength(1);
 		expect(catalogue.notes).toContain(
 			"2 versions from PyPI could not be read as a version",
@@ -141,10 +131,10 @@ describe("pypi", () => {
 	});
 
 	test("says a package is not published on a 404", async () => {
-		const stub = httpStub([[/simple\//, { status: 404 }]]);
-		await expect(
-			pypiCatalogue("nope", client({ http: stub.http, ...offline })),
-		).rejects.toThrow(/not published on PyPI/);
+		httpStub([[/simple\//, { status: 404 }]]);
+		await expect(pypiCatalogue("nope", client(offline))).rejects.toThrow(
+			/not published on PyPI/,
+		);
 	});
 });
 
@@ -156,17 +146,14 @@ describe("npm", () => {
 				{ body: abbreviated({ "1.9.4": {} }, { latest: "1.9.4" }) },
 			],
 		]);
-		await npmCatalogue(
-			"@biomejs/biome",
-			client({ http: stub.http, ...offline }),
-		);
+		await npmCatalogue("@biomejs/biome", client(offline));
 		expect(stub.headersOf(0).get("accept")).toBe(
 			"application/vnd.npm.install-v1+json",
 		);
 	});
 
 	test("takes the latest dist-tag as the answer", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/commander/,
 				{
@@ -177,10 +164,7 @@ describe("npm", () => {
 				},
 			],
 		]);
-		const catalogue = await npmCatalogue(
-			"commander",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await npmCatalogue("commander", client(offline));
 		expect(catalogue.latestStable?.version).toBe("15.0.0");
 		expect(catalogue.distTags).toEqual({
 			latest: "15.0.0",
@@ -191,7 +175,7 @@ describe("npm", () => {
 
 	test("falls back when the registry tags a prerelease as latest", async () => {
 		// verified live: @jsr/std__ini tags 1.0.0-rc.9 as latest
-		const stub = httpStub([
+		httpStub([
 			[
 				/std__ini/,
 				{
@@ -202,17 +186,14 @@ describe("npm", () => {
 				},
 			],
 		]);
-		const catalogue = await npmCatalogue(
-			"@jsr/std__ini",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await npmCatalogue("@jsr/std__ini", client(offline));
 		expect(catalogue.latestStable?.version).toBe("0.213.0");
 		expect(catalogue.latestPrerelease?.version).toBe("1.0.0-rc.9");
 		expect(catalogue.notes[0]).toMatch(/tags 1\.0\.0-rc\.9 as latest/);
 	});
 
 	test("keeps the dist-tag but says when something higher exists", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/x/,
 				{
@@ -220,16 +201,13 @@ describe("npm", () => {
 				},
 			],
 		]);
-		const catalogue = await npmCatalogue(
-			"x",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await npmCatalogue("x", client(offline));
 		expect(catalogue.latestStable?.version).toBe("1.0.0");
 		expect(catalogue.notes[0]).toMatch(/but 2\.0\.0 is higher/);
 	});
 
 	test("treats a deprecated version as withdrawn", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/x/,
 				{
@@ -240,19 +218,16 @@ describe("npm", () => {
 				},
 			],
 		]);
-		const catalogue = await npmCatalogue(
-			"x",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await npmCatalogue("x", client(offline));
 		expect(catalogue.latestStable?.version).toBe("1.0.0");
 		expect(catalogue.releases[1]?.withdrawn).toBe("deprecated: use y instead");
 	});
 
 	test("says a package is not published on a 404", async () => {
-		const stub = httpStub([[/registry\.npmjs/, { status: 404 }]]);
-		await expect(
-			npmCatalogue("nope", client({ http: stub.http, ...offline })),
-		).rejects.toThrow(/not published on npm/);
+		httpStub([[/registry\.npmjs/, { status: 404 }]]);
+		await expect(npmCatalogue("nope", client(offline))).rejects.toThrow(
+			/not published on npm/,
+		);
 	});
 });
 
@@ -280,7 +255,7 @@ describe("oci", () => {
 		const catalogue = await ociCatalogue(
 			{ registry: null, repository: "postgres", tag: "18.3", digest: null },
 			shapeOf("18.3") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		expect(catalogue.latestStable?.version).toBe("19.1");
@@ -297,7 +272,7 @@ describe("oci", () => {
 
 	test("follows the Link header across pages", async () => {
 		let page = 0;
-		const stub = httpStub([
+		httpStub([
 			[
 				/tags\/list/,
 				(_url, init) => {
@@ -324,7 +299,7 @@ describe("oci", () => {
 				digest: null,
 			},
 			shapeOf("server-cuda-b9843") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		expect(catalogue.latestStable?.version).toBe("b10412");
@@ -334,7 +309,7 @@ describe("oci", () => {
 	test("says a missing repository is unreadable rather than deleted", async () => {
 		// verified: Docker Hub and Quay answer 401 and GHCR answers 403, never 404
 		for (const status of [401, 403]) {
-			const stub = httpStub([
+			httpStub([
 				[
 					/tags\/list/,
 					(_url, init) =>
@@ -348,7 +323,7 @@ describe("oci", () => {
 				ociCatalogue(
 					{ registry: null, repository: "gone", tag: "1.0", digest: null },
 					shapeOf("1.0") as TagShape,
-					client({ http: stub.http, ...offline }),
+					client(offline),
 					{ resolveLatest: false },
 				),
 			).rejects.toThrow(/not readable anonymously/);
@@ -356,7 +331,7 @@ describe("oci", () => {
 	});
 
 	test("says what it held constant, and what it could not find", async () => {
-		const stub = httpStub([
+		httpStub([
 			...hubRoutes([
 				"0.11.1-python3.14-trixie-slim",
 				"0.12.3-python3.14-trixie-slim",
@@ -371,7 +346,7 @@ describe("oci", () => {
 				digest: null,
 			},
 			shapeOf("0.11.1-python3.14-trixie-slim") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		expect(catalogue.label).toBe("-python3.14-trixie-slim");
@@ -390,7 +365,7 @@ describe("oci", () => {
 			"19.1": "sha256:aaa",
 			"18.3": "sha256:bbb",
 		};
-		const stub = httpStub([
+		httpStub([
 			[
 				/manifests\//,
 				(url, init) => {
@@ -408,7 +383,7 @@ describe("oci", () => {
 		const catalogue = await ociCatalogue(
 			{ registry: null, repository: "postgres", tag: "18.3", digest: null },
 			shapeOf("18.3") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 		);
 		expect(catalogue.distTags).toEqual({ latest: "19.1" });
 	});
@@ -418,7 +393,7 @@ describe("oci", () => {
 		await ociCatalogue(
 			{ registry: null, repository: "postgres", tag: "18.3", digest: null },
 			shapeOf("18.3") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		expect(stub.urls().some((url) => url.includes("/manifests/"))).toBe(false);
@@ -457,7 +432,7 @@ describe("verdict against a catalogue a registry built", () => {
 
 	test("sees a container image is behind", async () => {
 		// the real astral/uv shape: a labelled pin, and a stream tag with no counterpart for the label
-		const stub = httpStub([
+		httpStub([
 			...hubRoutes([
 				"latest",
 				"0.11.1",
@@ -476,7 +451,7 @@ describe("verdict against a catalogue a registry built", () => {
 				digest: null,
 			},
 			shapeOf("0.11.1-python3.14-trixie-slim") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		consistent(catalogue);
@@ -493,7 +468,7 @@ describe("verdict against a catalogue a registry built", () => {
 	});
 
 	test("sees an image pinned by a build counter is behind", async () => {
-		const stub = httpStub([
+		httpStub([
 			...hubRoutes([
 				"server-cuda-b9843",
 				"server-cuda-b10412",
@@ -508,7 +483,7 @@ describe("verdict against a catalogue a registry built", () => {
 				digest: null,
 			},
 			shapeOf("server-cuda-b9843") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		consistent(catalogue);
@@ -520,11 +495,11 @@ describe("verdict against a catalogue a registry built", () => {
 	});
 
 	test("sees an image that is already current", async () => {
-		const stub = httpStub([...hubRoutes(["18.3", "18.2"])]);
+		httpStub([...hubRoutes(["18.3", "18.2"])]);
 		const catalogue = await ociCatalogue(
 			{ registry: null, repository: "postgres", tag: "18.3", digest: null },
 			shapeOf("18.3") as TagShape,
-			client({ http: stub.http, ...offline }),
+			client(offline),
 			{ resolveLatest: false },
 		);
 		consistent(catalogue);
@@ -534,13 +509,8 @@ describe("verdict against a catalogue a registry built", () => {
 	});
 
 	test("sees a python package is behind", async () => {
-		const stub = httpStub([
-			[/simple\//, { body: simple(["1.6.3", "1.7.0", "1.8.0a1"]) }],
-		]);
-		const catalogue = await pypiCatalogue(
-			"shiny",
-			client({ http: stub.http, ...offline }),
-		);
+		httpStub([[/simple\//, { body: simple(["1.6.3", "1.7.0", "1.8.0a1"]) }]]);
+		const catalogue = await pypiCatalogue("shiny", client(offline));
 		consistent(catalogue);
 		const result = verdict(dependency("python", "shiny", "1.6.3"), catalogue);
 		expect(result.behind).toBe(true);
@@ -548,7 +518,7 @@ describe("verdict against a catalogue a registry built", () => {
 	});
 
 	test("sees a node package is behind", async () => {
-		const stub = httpStub([
+		httpStub([
 			[
 				/commander/,
 				{
@@ -559,10 +529,7 @@ describe("verdict against a catalogue a registry built", () => {
 				},
 			],
 		]);
-		const catalogue = await npmCatalogue(
-			"commander",
-			client({ http: stub.http, ...offline }),
-		);
+		const catalogue = await npmCatalogue("commander", client(offline));
 		consistent(catalogue);
 		const result = verdict(
 			dependency("node", "commander", "14.0.2"),

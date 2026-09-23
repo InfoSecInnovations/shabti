@@ -13,6 +13,8 @@ const options = {
 zxcvbnOptions.setOptions(options);
 
 export default (formData: FormData) => {
+	// the version list can be empty when we're offline
+	if (!formData.get("version")) return false;
 	const securityLevel = formData.get("security_level")?.toString();
 	if (!securityLevel || securityLevel == "none") return true; // if you don't have security enabled Shabti will install fine with no options set
 	// the install tears down any existing configuration, so Keycloak is always installed fresh

@@ -1,0 +1,7 @@
+# the dev containers bind-mount this directory and write into it, and anything that changes here
+# invalidates the layers that install the Python dependencies, which can't be rebuilt offline
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+**/.ruff_cache

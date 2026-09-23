@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as catalogueModule from "../catalogue";
 import { freshness, unsupported, verdict } from "../catalogue";
 import type { Catalogue, Dependency, Pin, Release } from "../types";
 
@@ -218,25 +219,25 @@ describe("unsupported", () => {
 });
 
 describe("freshness", () => {
+	afterEach(() => {
+		mock.restore();
+	});
+
 	test("turns a failed lookup into a failed row rather than a failed run", async () => {
-		const results = await freshness(
-			[
-				dependency([pin({ id: "good", name: "good" })], {
-					id: "good",
-					name: "good",
-				}),
-				dependency([pin({ id: "bad", name: "bad" })], {
-					id: "bad",
-					name: "bad",
-				}),
-			],
-			{
-				registry: async (target) => {
-					if (target.id === "bad") throw new Error("ghcr.io hiccuped");
-					return catalogue(["1.0.0", "2.0.0"]);
-				},
-			},
-		);
+		spyOn(catalogueModule, "registry").mockReturnValue(async (target) => {
+			if (target.id === "bad") throw new Error("ghcr.io hiccuped");
+			return catalogue(["1.0.0", "2.0.0"]);
+		});
+		const results = await freshness([
+			dependency([pin({ id: "good", name: "good" })], {
+				id: "good",
+				name: "good",
+			}),
+			dependency([pin({ id: "bad", name: "bad" })], {
+				id: "bad",
+				name: "bad",
+			}),
+		]);
 		expect(results.map((result) => result.status)).toEqual(["ok", "failed"]);
 		const failed = results[1];
 		if (failed?.status !== "failed") throw new Error("expected a failure");
@@ -249,20 +250,16 @@ describe("freshness", () => {
 
 	test("never asks the registry about something it cannot look up", async () => {
 		let asked = 0;
-		const results = await freshness(
-			[
-				dependency([pin({ ecosystem: "node", precision: "alias" })], {
-					ecosystem: "node",
-					precision: "alias",
-				}),
-			],
-			{
-				registry: async () => {
-					asked++;
-					return catalogue(["1.0.0"]);
-				},
-			},
-		);
+		spyOn(catalogueModule, "registry").mockReturnValue(async () => {
+			asked++;
+			return catalogue(["1.0.0"]);
+		});
+		const results = await freshness([
+			dependency([pin({ ecosystem: "node", precision: "alias" })], {
+				ecosystem: "node",
+				precision: "alias",
+			}),
+		]);
 		expect(results[0]?.status).toBe("unsupported");
 		expect(asked).toBe(0);
 	});

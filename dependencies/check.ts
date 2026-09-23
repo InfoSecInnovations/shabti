@@ -10,7 +10,7 @@
  */
 
 import { Command } from "commander";
-import { type Registry, freshness } from "./catalogue";
+import { freshness } from "./catalogue";
 import { type Exception, exemption, readExceptions } from "./exceptions";
 import type { Options } from "./http";
 import { group, readPins } from "./read";
@@ -42,12 +42,10 @@ const reasonFor = (dependency: Dependency, exceptions: Exception[]) =>
 
 export const check = async ({
 	repoDir,
-	registry,
 	resolveLatest,
 	...options
 }: Options & {
 	repoDir: string;
-	registry?: Registry;
 	resolveLatest?: boolean;
 }): Promise<Report> => {
 	const exceptions = await readExceptions(repoDir);
@@ -61,7 +59,6 @@ export const check = async ({
 	const checked = all.filter((dependency) => !isExempt(dependency, exceptions));
 	const found = await freshness(checked, {
 		...options,
-		registry,
 		resolveLatest,
 	});
 

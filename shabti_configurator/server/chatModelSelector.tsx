@@ -1,5 +1,5 @@
 import getDefaultModelSelection from "../getDefaultModelSelection";
-import getModelsConfig from "../getModelsConfig";
+import getAvailableModels from "./getAvailableModels";
 import readModelsIni from "./readModelsIni";
 
 // which models to preselect when there's no my-models.ini to read
@@ -9,11 +9,12 @@ export enum ModelSelectionFallback {
 }
 
 // resolves the models which are currently configured, falling back to the bundled catalogue
-// when Shabti hasn't been installed yet
+// when Shabti hasn't been installed yet. Only the models which can be used right now are
+// offered, which offline means the downloaded ones
 export const resolveModelSelection = async (options: {
 	fallback: ModelSelectionFallback;
 }) => {
-	const shabtiModels = await getModelsConfig();
+	const { models: shabtiModels, connectivity } = await getAvailableModels();
 	const configured = await readModelsIni();
 	const defaults = await getDefaultModelSelection();
 	const selection =
@@ -21,14 +22,27 @@ export const resolveModelSelection = async (options: {
 		(options.fallback == ModelSelectionFallback.DefaultModelOnly
 			? { ...defaults, chatModels: [defaults.defaultModel] }
 			: defaults);
-	const chatModels = Object.entries(shabtiModels)
-		.filter(([_, v]) => v.tags.includes("chat"))
-		.map(([k]) => k);
+	const modelsTagged = (tag: string) =>
+		Object.entries(shabtiModels)
+			.filter(([_, v]) => v.tags.includes(tag))
+			.map(([k]) => k);
+	const chatModels = modelsTagged("chat");
+	const embeddingsModels = modelsTagged("embeddings");
 	// filter the catalogue rather than the selection so the option order stays stable
 	const selectedChatModels = chatModels.filter((model) =>
 		selection.chatModels.includes(model),
 	);
-	return { shabtiModels, selection, chatModels, selectedChatModels };
+	// the preselected models may not be downloaded, but something has to be selected
+	if (!selectedChatModels.length && chatModels.length)
+		selectedChatModels.push(chatModels[0]!);
+	return {
+		shabtiModels,
+		connectivity,
+		selection,
+		chatModels,
+		embeddingsModels,
+		selectedChatModels,
+	};
 };
 
 // the default chat model can only be chosen when more than one model is selected, so the

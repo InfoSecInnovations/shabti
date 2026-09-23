@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 import * as humanize from "ts-humanize";
 import getDefaultModelSelection from "../getDefaultModelSelection";
 import downloadModel from "./downloadModel";
+import { requireModels } from "./listDownloadedModels";
 import logMessage from "./logMessage";
 import readModelsIni from "./readModelsIni";
 import { startLlamaCpp, stopLlamaCpp } from "./restartLlamaCpp";
@@ -34,6 +35,8 @@ export default async function* (options: FormData) {
 	const removed = (current?.chatModels || []).filter(
 		(model) => !chatModels.includes(model),
 	);
+	// before anything is stopped, so an offline change that can't work leaves things as they were
+	const online = await requireModels([...chatModels, embeddingsModel]);
 	if (added.length) yield logMessage(`adding models: ${added.join(", ")}`);
 	if (removed.length)
 		yield logMessage(`removing models: ${removed.join(", ")}`);
@@ -47,12 +50,15 @@ export default async function* (options: FormData) {
 	await startLlamaCpp();
 	// we run this over every selected model rather than just the new ones because it's cheap,
 	// downloadModel returns straight away if Llama.cpp already has the model, and it repairs
-	// the case where a model is in the ini file but was never successfully downloaded
-	for (const modelName of [...chatModels, embeddingsModel]) {
-		for await (const json of downloadModel(modelName)) {
-			yield logMessage(
-				`loaded ${humanize.bytes(json.progress)} / ${humanize.bytes(json.total)} of file ${json.file} for model ${json.modelName}`,
-			);
+	// the case where a model is in the ini file but was never successfully downloaded.
+	// offline, requireModels has already confirmed they're all downloaded
+	if (online) {
+		for (const modelName of [...chatModels, embeddingsModel]) {
+			for await (const json of downloadModel(modelName)) {
+				yield logMessage(
+					`loaded ${humanize.bytes(json.progress)} / ${humanize.bytes(json.total)} of file ${json.file} for model ${json.modelName}`,
+				);
+			}
 		}
 	}
 	if (removed.length)

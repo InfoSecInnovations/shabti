@@ -1,4 +1,6 @@
 import { $ } from "bun";
+import buildImages from "./buildImages";
+import { getConnectivity } from "./connectivity";
 import getEnvs from "./getEnvs";
 import logMessage from "./logMessage";
 import lockPythonDeps from "./lockPythonDeps";
@@ -20,12 +22,21 @@ export default async function* (
 			);
 			return;
 		}
-		yield logMessage("Updating Python lockfiles...");
-		await lockPythonDeps();
+		if ((await getConnectivity()) == "offline") {
+			yield logMessage(
+				"Couldn't update the Python lockfiles offline, using the existing ones.",
+			);
+		} else {
+			yield logMessage("Updating Python lockfiles...");
+			await lockPythonDeps();
+		}
 		yield logMessage(
 			"Building Docker image to run local code. This can take a while depending on your internet connection...",
 		);
-		await $`docker compose -f ./docker_compose/docker-compose-dev.yml build`;
+		if (!(await buildImages("./docker_compose/docker-compose-dev.yml", {})))
+			yield logMessage(
+				"Couldn't rebuild the Docker images, using the ones already built.",
+			);
 		yield logMessage(
 			"Launching Docker Compose configuration with local code...",
 		);

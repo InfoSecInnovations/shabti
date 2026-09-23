@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as eventsourceClient from "eventsource-client";
 import downloadModel from "../server/downloadModel";
 import { LlamaCppUnavailableError, ModelDownloadError } from "../server/errors";
 
@@ -28,7 +29,7 @@ const eventSource = (events: { data: string }[]) => {
 	return source;
 };
 
-/** health checks answer `healthy` responses first, then 200 forever */
+/** health checks answer `unhealthy` 503s first, then 200 forever */
 const stub = (options: {
 	unhealthy?: number;
 	models?: { status: number; body?: unknown };
@@ -37,34 +38,27 @@ const stub = (options: {
 	const source = eventSource(options.events || []);
 	let healthChecks = 0;
 	const calls = { health: 0, models: 0, eventSources: 0 };
-	return {
-		source,
-		calls,
-		deps: {
-			sleep: async () => {},
-			healthAttempts: 2,
-			healthDelayMs: 0,
-			fetch: (async (url: string, init?: { method?: string }) => {
-				if (init?.method != "POST") {
-					calls.health++;
-					healthChecks++;
-					return {
-						status: healthChecks <= (options.unhealthy || 0) ? 503 : 200,
-					};
-				}
-				calls.models++;
-				const models = options.models || { status: 200 };
-				return {
-					status: models.status,
-					json: async () => models.body,
-				};
-			}) as unknown as typeof globalThis.fetch,
-			createEventSource: ((..._args: unknown[]) => {
-				calls.eventSources++;
-				return source;
-			}) as any,
-		},
-	};
+	spyOn(Bun, "sleep").mockResolvedValue(undefined);
+	spyOn(globalThis, "fetch").mockImplementation((async (
+		_url: string,
+		init?: { method?: string },
+	) => {
+		if (init?.method != "POST") {
+			calls.health++;
+			healthChecks++;
+			return new Response(null, {
+				status: healthChecks <= (options.unhealthy || 0) ? 503 : 200,
+			});
+		}
+		calls.models++;
+		const models = options.models || { status: 200 };
+		return Response.json(models.body ?? null, { status: models.status });
+	}) as unknown as typeof fetch);
+	spyOn(eventsourceClient, "createEventSource").mockImplementation((() => {
+		calls.eventSources++;
+		return source;
+	}) as any);
+	return { source, calls };
 };
 
 const drain = async (
@@ -75,31 +69,35 @@ const drain = async (
 	return yielded;
 };
 
+afterEach(() => {
+	mock.restore();
+});
+
 describe("downloadModel", () => {
 	test("fails when the language model service never comes online", async () => {
-		const { deps, calls } = stub({ unhealthy: 99 });
-		await expect(drain(downloadModel(MODEL, deps))).rejects.toBeInstanceOf(
+		const { calls } = stub({ unhealthy: Number.POSITIVE_INFINITY });
+		await expect(drain(downloadModel(MODEL))).rejects.toBeInstanceOf(
 			LlamaCppUnavailableError,
 		);
-		expect(calls.health).toBe(2); // bounded rather than falling through as it used to
+		expect(calls.health).toBe(120); // bounded rather than falling through as it used to
 	});
 
 	test("does nothing when the model is already downloaded", async () => {
-		const { deps, calls } = stub({
+		const { calls } = stub({
 			models: {
 				status: 400,
 				body: { error: { message: "model already exists" } },
 			},
 		});
-		expect(await drain(downloadModel(MODEL, deps))).toEqual([]);
+		expect(await drain(downloadModel(MODEL))).toEqual([]);
 		expect(calls.eventSources).toBe(0);
 	});
 
 	test("reports progress and finishes cleanly", async () => {
-		const { deps, source } = stub({
+		const { source } = stub({
 			events: [progress(1, 2), event("download_finished")],
 		});
-		expect(await drain(downloadModel(MODEL, deps))).toEqual([
+		expect(await drain(downloadModel(MODEL))).toEqual([
 			{
 				progress: 1,
 				total: 2,
@@ -113,10 +111,10 @@ describe("downloadModel", () => {
 
 	// this used to break out of the loop and let the install go on to say it succeeded
 	test("fails when the service reports the download failed", async () => {
-		const { deps, source } = stub({
+		const { source } = stub({
 			events: [progress(1, 2), event("download_failed", "out of disk space")],
 		});
-		await expect(drain(downloadModel(MODEL, deps))).rejects.toThrow(
+		await expect(drain(downloadModel(MODEL))).rejects.toThrow(
 			/out of disk space/,
 		);
 		expect(source.closed).toBe(true);
@@ -124,8 +122,8 @@ describe("downloadModel", () => {
 
 	// so did losing the connection before either terminal event arrived
 	test("fails when the service stops reporting before the download finishes", async () => {
-		const { deps, source } = stub({ events: [progress(1, 2)] });
-		await expect(drain(downloadModel(MODEL, deps))).rejects.toBeInstanceOf(
+		const { source } = stub({ events: [progress(1, 2)] });
+		await expect(drain(downloadModel(MODEL))).rejects.toBeInstanceOf(
 			ModelDownloadError,
 		);
 		expect(source.closed).toBe(true);

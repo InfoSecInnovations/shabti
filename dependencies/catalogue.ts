@@ -21,7 +21,7 @@ import type {
 	Verdict,
 } from "./types";
 
-/** the seam the commands are written against, so a test never needs a network or a stub server */
+/** how a dependency is looked up */
 export type Registry = (dependency: Dependency) => Promise<Catalogue>;
 
 /** an untagged image is compared against plain version tags, which is what `latest` would resolve to */
@@ -132,9 +132,9 @@ const reasonOf = (error: unknown) =>
 /** every dependency, concurrently, never throwing */
 export const freshness = async (
 	dependencies: Dependency[],
-	options: Options & { registry?: Registry; resolveLatest?: boolean } = {},
+	options: Options & { resolveLatest?: boolean } = {},
 ): Promise<Freshness[]> => {
-	const look = options.registry ?? registry(client(options), options);
+	const look = registry(client(options), options);
 	return Promise.all(
 		dependencies.map(async (dependency): Promise<Freshness> => {
 			const reason = unsupported(dependency);

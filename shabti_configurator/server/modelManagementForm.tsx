@@ -3,9 +3,10 @@ import {
 	ModelSelectionFallback,
 	resolveModelSelection,
 } from "./chatModelSelector";
+import { ConnectivityNotice } from "./connectivityNotice";
 
 export const ModelManagementForm = async () => {
-	const { selection, chatModels, selectedChatModels } =
+	const { connectivity, selection, chatModels, selectedChatModels } =
 		await resolveModelSelection({
 			fallback: ModelSelectionFallback.AllChatModels,
 		});
@@ -13,6 +14,7 @@ export const ModelManagementForm = async () => {
 		<form action="/manage-models" method="post">
 			<fieldset>
 				<legend>LLM Configuration</legend>
+				<ConnectivityNotice connectivity={connectivity}></ConnectivityNotice>
 				<ChatModelSelector
 					selectId="manage_language_model"
 					containerId="manage_default_model_selector"

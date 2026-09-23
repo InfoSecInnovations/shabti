@@ -4,10 +4,13 @@ import { KeycloakUnavailableError } from "./errors";
 // Keycloak has no healthcheck and takes a while to come up, so we retry. Bounded, and with a wait
 // between attempts, so a wrong password surfaces as an error instead of spinning forever. 60 x 5s
 // matches the "this can take a few minutes" the install tells the user to expect
-export default async (attempts = 60, delayMs = 5000) => {
+const ATTEMPTS = 60;
+const DELAY_MS = 5000;
+
+export default async () => {
 	process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 	let lastError: unknown;
-	for (let attempt = 0; attempt < attempts; attempt++) {
+	for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
 		try {
 			const kcClient = new KcAdminClient({
 				baseUrl: "https://localhost:8443",
@@ -25,8 +28,8 @@ export default async (attempts = 60, delayMs = 5000) => {
 			return secret.value!;
 		} catch (error) {
 			lastError = error;
-			await Bun.sleep(delayMs);
+			await Bun.sleep(DELAY_MS);
 		}
 	}
-	throw new KeycloakUnavailableError(attempts, { cause: lastError });
+	throw new KeycloakUnavailableError(ATTEMPTS, { cause: lastError });
 };

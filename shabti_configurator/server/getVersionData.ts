@@ -1,28 +1,8 @@
-import { Octokit } from "octokit";
+import { getCompatibleReleases } from "./listCompatibleVersions";
 
-export default async (version: string) => {
-	const octokit = new Octokit();
-	const release = await octokit.rest.repos
-		.getReleaseByTag({
-			owner: "InfoSecInnovations",
-			repo: "shabti",
-			tag: `shabti-v${version}`,
-			headers: {
-				"X-GitHub-Api-Version": "2026-03-10",
-			},
-		})
-		.catch((err) => {
-			// if (err.status == 404) return undefined;
-			// throw err;
-			// TODO: catch specific error when there's no internet connection in addition to 404
-			return undefined;
-		});
-	if (!release) return undefined;
-	const componentsAsset = release.data.assets.find(
-		(asset) => asset.name == "shabti-components.json",
+// every version we offer comes from a shabti-components.json, whether fetched or cached, so a
+// version that isn't in there is a legacy one whose images are tagged with the version itself
+export default async (version: string) =>
+	(await getCompatibleReleases()).releases.find(
+		(release) => release.version == version,
 	);
-	if (!componentsAsset) return undefined;
-	return await fetch(componentsAsset.url, {
-		headers: { Accept: "application/octet-stream" },
-	}).then((res) => res.json() as any);
-};

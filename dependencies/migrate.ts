@@ -22,7 +22,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { normalise } from "../versioning/manifest";
 import { type Exception, exemption, readExceptions } from "./exceptions";
-import { type Runner, commandFor, lockActionsFor, regenerate } from "./lock";
+import { commandFor, lockActionsFor, regenerate } from "./lock";
 import { group, readPins } from "./read";
 import { type Tagged, byEcosystem, count, tabulate, where } from "./render";
 import { applyEdits, plannedEdits } from "./rewrite";
@@ -195,12 +195,10 @@ export const migrate = async ({
 	repoDir,
 	dryRun,
 	lock = true,
-	run,
 }: {
 	repoDir: string;
 	dryRun?: boolean;
 	lock?: boolean;
-	run?: Runner;
 }): Promise<Result> => {
 	const exceptions = await readExceptions(repoDir);
 	const pins = await readPins(repoDir);
@@ -232,9 +230,7 @@ export const migrate = async ({
 	return {
 		...plan,
 		files,
-		locked: lock
-			? await regenerate(repoDir, actions, run ? { run } : {})
-			: actions.map(commandFor),
+		locked: lock ? await regenerate(repoDir, actions) : actions.map(commandFor),
 	};
 };
 

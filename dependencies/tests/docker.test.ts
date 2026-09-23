@@ -82,6 +82,8 @@ const COMPOSE = `services:
   shabti:
     image: infosecinnovations/shabti:\${SHABTI_API_VERSION:-latest}
   shabti-web:
+    image: !reset null
+  shabti-client:
     image: null
   zip:
     image: javieraviles/zip`;
@@ -101,7 +103,8 @@ describe("composePins", () => {
 	});
 
 	test("skips an image deliberately unset to force a local build", () => {
-		// docker-compose-dev.yml does this twice; a text scan would find a dependency named "null"
+		// docker-compose-dev.yml does this twice with !reset, which Bun's parser reads as the string
+		// "null"; a text scan would find a dependency named "null" either way
 		expect(pins.some((pin) => pin.id === "null")).toBe(false);
 	});
 

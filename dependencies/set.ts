@@ -25,7 +25,7 @@ import semver from "semver";
 import { normalise } from "../versioning/manifest";
 import { type Registry, registry, unsupported } from "./catalogue";
 import { type Options, client } from "./http";
-import { type Runner, commandFor, lockActionsFor, regenerate } from "./lock";
+import { commandFor, lockActionsFor, regenerate } from "./lock";
 import { compare, parse } from "./pep440";
 import { group, readPins } from "./read";
 import { type Tagged, byEcosystem, count, tabulate, where } from "./render";
@@ -242,8 +242,6 @@ export const set = async ({
 	ecosystem,
 	literalTag,
 	lock = true,
-	registry: injected,
-	run,
 	...options
 }: Options & {
 	repoDir: string;
@@ -252,14 +250,12 @@ export const set = async ({
 	ecosystem?: Ecosystem;
 	literalTag?: boolean;
 	lock?: boolean;
-	registry?: Registry;
-	run?: Runner;
 }): Promise<Result> => {
 	if (!specs.length) throw new Error("name at least one dependency to set");
 	const dependencies = group(await readPins(repoDir));
 	// one client for the whole run, so its memo, its concurrency limit and its per host serialisation
 	// hold across every lookup instead of being rebuilt for each dependency
-	const look = injected ?? registry(client(options), { resolveLatest: false });
+	const look = registry(client(options), { resolveLatest: false });
 	// every lookup settles before any is judged, so one failure cannot abandon the others in flight
 	const resolutions = await Promise.all(
 		specs.map((spec) =>
@@ -323,9 +319,7 @@ export const set = async ({
 			warnings: resolution.warnings,
 		})),
 		files,
-		locked: lock
-			? await regenerate(repoDir, actions, run ? { run } : {})
-			: actions.map(commandFor),
+		locked: lock ? await regenerate(repoDir, actions) : actions.map(commandFor),
 		warnings:
 			!lock && actions.length
 				? [`did not run: ${actions.map(commandFor).join(", ")}`]

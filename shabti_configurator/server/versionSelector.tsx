@@ -5,7 +5,7 @@ export const VersionSelector = async (props: {
 	devMode: boolean;
 	currentVersion?: string;
 }) => {
-	const availableVersions = (await listCompatibleVersions()) || [];
+	const availableVersions = await listCompatibleVersions();
 	return (
 		<select id={props.id} name="version">
 			{props.devMode && <option value="local">local</option>}

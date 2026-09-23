@@ -1,10 +1,10 @@
 /**
  * Reading the image pins out of compose files and Dockerfiles.
  *
- * Compose files are parsed as YAML rather than scanned. That is what makes `image: null` - which
- * docker-compose-dev.yml uses twice to unset an inherited image and force a local build - a null rather
- * than a dependency named "null", what gives a service name to report against, and what stops the word
- * `image` inside docker-compose-uv-lock.yml's shell `command:` being read as one.
+ * Compose files are parsed as YAML rather than scanned. That is what makes `image: !reset null` - which
+ * docker-compose-dev.yml uses twice to unset an inherited image and force a local build - something we
+ * can skip rather than a dependency named "null", what gives a service name to report against, and what
+ * stops the word `image` inside docker-compose-uv-lock.yml's shell `command:` being read as one.
  *
  * Writing is a different matter, and deliberately never re-serialises: the compose files carry comments
  * that encode invariants, `${VAR:-default}` interpolations, and inconsistent trailing newlines, and
@@ -108,7 +108,8 @@ export const composePins = (file: string, text: string): Pin[] => {
 	return Object.entries(table(table(document).services)).flatMap(
 		([service, definition]) => {
 			const reference = table(definition).image;
-			if (typeof reference !== "string") return [];
+			// Bun's parser drops the !reset tag and leaves `!reset null` as the string
+			if (typeof reference !== "string" || reference === "null") return [];
 			const image = parseImage(reference);
 			if (!image) return [];
 			return [

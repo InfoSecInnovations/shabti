@@ -1,7 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	mock,
+	spyOn,
+	test,
+} from "bun:test";
+import * as git from "../../versioning/git";
 import { useRepo } from "../../versioning/tests/fixture";
-import type { Registry } from "../catalogue";
-import type { Runner } from "../lock";
+import * as catalogueModule from "../catalogue";
 import { parseSpec, render, set } from "../set";
 import type { Catalogue, Release } from "../types";
 
@@ -57,34 +65,43 @@ const CATALOGUES: Record<string, Catalogue> = {
 	"astral/uv": catalogue(["0.9.6", "0.9.7"]),
 };
 
-/** the registry seam, so nothing here needs a network */
-const stub =
-	(overrides: Record<string, Catalogue> = {}): Registry =>
-	async (dependency) => {
-		const found = { ...CATALOGUES, ...overrides }[dependency.id];
+/** what the registry answers with this test, so nothing here needs a network */
+let catalogues: Record<string, Catalogue>;
+const stub = (overrides: Record<string, Catalogue> = {}) => {
+	catalogues = { ...CATALOGUES, ...overrides };
+};
+
+beforeEach(() => {
+	stub();
+	spyOn(catalogueModule, "registry").mockReturnValue(async (dependency) => {
+		const found = catalogues[dependency.id];
 		if (!found) throw new Error(`nothing stubbed for ${dependency.id}`);
 		return found;
-	};
+	});
+});
 
-/** the lockfile runner, recorded rather than run, so no test starts Docker */
+afterEach(() => {
+	mock.restore();
+});
+
+// taken before anything spies on it, so git itself still runs for real
+const realRun = git.run;
+
+/** the lockfile commands, recorded rather than run, so no test starts Docker */
 const recorder = () => {
 	const ran: string[][] = [];
-	const run: Runner = async (command) => {
+	spyOn(git, "run").mockImplementation(async (command, options) => {
+		if (command[0] === "git") return realRun(command, options);
 		ran.push(command);
 		return { exitCode: 0, stdout: "", stderr: "" };
-	};
-	return { ran, run };
+	});
+	return { ran };
 };
 
 const setting = (
 	specs: string[],
-	extra: {
-		literalTag?: boolean;
-		lock?: boolean;
-		registry?: Registry;
-		run?: Runner;
-	} = {},
-) => set({ repoDir: repo.dir, specs, registry: stub(), ...extra });
+	extra: { literalTag?: boolean; lock?: boolean } = {},
+) => set({ repoDir: repo.dir, specs, ...extra });
 
 describe("parseSpec", () => {
 	test("splits name@version", () => {
@@ -114,10 +131,8 @@ describe("parseSpec", () => {
 
 describe("a list of dependencies is one run", () => {
 	test("sets every one named, and locks once for the batch", async () => {
-		const { ran, run } = recorder();
-		const result = await setting(["fastapi@0.137.0", "commander@15.1.0"], {
-			run,
-		});
+		const { ran } = recorder();
+		const result = await setting(["fastapi@0.137.0", "commander@15.1.0"]);
 
 		expect(result.changes.map((change) => [change.name, change.to])).toEqual([
 			["fastapi", "0.137.0"],
@@ -133,8 +148,8 @@ describe("a list of dependencies is one run", () => {
 	});
 
 	test("two node pins regenerate bun.lock once between them", async () => {
-		const { ran, run } = recorder();
-		await setting(["commander@15.1.0", "@types/semver@7.9.0"], { run });
+		const { ran } = recorder();
+		await setting(["commander@15.1.0", "@types/semver@7.9.0"]);
 
 		expect(await repo.read("package.json")).toContain('"commander": "15.1.0"');
 		expect(await repo.read("package.json")).toContain(
@@ -144,10 +159,9 @@ describe("a list of dependencies is one run", () => {
 	});
 
 	test("--no-lock names what is left to run, once", async () => {
-		const { ran, run } = recorder();
+		const { ran } = recorder();
 		const result = await setting(["fastapi@0.137.0", "commander@15.1.0"], {
 			lock: false,
-			run,
 		});
 
 		expect(ran).toEqual([]);
@@ -168,7 +182,7 @@ describe("a name with no version takes the latest", () => {
 
 	test("never a prerelease and never a withdrawn release", async () => {
 		// latestStable is what the report is judged by, so it is what a bare name has to follow
-		const registry = stub({
+		stub({
 			fastapi: {
 				releases: [
 					...stable(["0.136.0", "0.137.0"]),
@@ -179,7 +193,7 @@ describe("a name with no version takes the latest", () => {
 				notes: [],
 			},
 		});
-		const result = await setting(["fastapi"], { lock: false, registry });
+		const result = await setting(["fastapi"], { lock: false });
 
 		expect(result.changes[0]?.to).toBe("0.137.0");
 	});
@@ -195,12 +209,12 @@ describe("a name with no version takes the latest", () => {
 
 	test("refuses when nothing stable is published", async () => {
 		// moving to a prerelease is a decision, so it has to be spelled out
-		const registry = stub({
+		stub({
 			fastapi: catalogue(["0.138.0b1"], { latestStable: undefined }),
 		});
-		await expect(
-			setting(["fastapi"], { lock: false, registry }),
-		).rejects.toThrow(/no stable release to move to/);
+		await expect(setting(["fastapi"], { lock: false })).rejects.toThrow(
+			/no stable release to move to/,
+		);
 	});
 
 	test("--tag has no tag to write without one", async () => {
@@ -212,8 +226,8 @@ describe("a name with no version takes the latest", () => {
 
 describe("a pin already at the version asked for", () => {
 	test("writes nothing, locks nothing, and says so", async () => {
-		const { ran, run } = recorder();
-		const result = await setting(["fastapi@0.136.0"], { run });
+		const { ran } = recorder();
+		const result = await setting(["fastapi@0.136.0"]);
 
 		expect(result.files).toEqual([]);
 		expect(result.locked).toEqual([]);
@@ -261,7 +275,7 @@ describe("all or nothing across the whole list", () => {
 
 describe("warnings", () => {
 	test("a withdrawn version is written, against its own name", async () => {
-		const registry = stub({
+		stub({
 			commander: {
 				releases: [
 					...stable(["14.0.0", "15.0.0"]),
@@ -273,7 +287,6 @@ describe("warnings", () => {
 		});
 		const result = await setting(["commander@15.1.0"], {
 			lock: false,
-			registry,
 		});
 
 		expect(result.changes[0]?.warnings).toEqual(["15.1.0 is deprecated"]);
@@ -311,8 +324,8 @@ describe("the table", () => {
 	});
 
 	test("says what it ran when it locked", async () => {
-		const { run } = recorder();
-		const result = await setting(["fastapi@0.137.0"], { run });
+		recorder();
+		const result = await setting(["fastapi@0.137.0"]);
 
 		expect(render(result)).toContain("wrote 1 file\nran uv lock");
 	});

@@ -3,6 +3,8 @@ import { HostsAndPortsFieldset } from "./hostsAndPortsFieldset";
 import { LoggingFieldset } from "./loggingFieldset";
 import { VersionSelector } from "./versionSelector";
 import currentIsLocal from "./currentIsLocal";
+import listCompatibleVersions from "./listCompatibleVersions";
+import { ConnectivityNotice } from "./connectivityNotice";
 import {
 	ChatModelSelector,
 	ModelSelectionFallback,
@@ -17,12 +19,25 @@ export const InstallOptionsForm = async (props: {
 	const securityEnabled = envs.SHABTI_SECURITY_ENABLED == "True";
 	const demoEnabled = securityEnabled && envs.IS_SECURITY_DEMO == "True";
 	const gpuEnabled = envs.SHABTI_COMPUTE == "cuda";
-	const { shabtiModels, selection, chatModels, selectedChatModels } =
-		await resolveModelSelection({
-			fallback: ModelSelectionFallback.DefaultModelOnly,
-		});
+	const {
+		connectivity,
+		selection,
+		chatModels,
+		embeddingsModels,
+		selectedChatModels,
+	} = await resolveModelSelection({
+		fallback: ModelSelectionFallback.DefaultModelOnly,
+	});
+	const versions = await listCompatibleVersions();
+	if (
+		(!versions.length && !props.devMode) ||
+		!chatModels.length ||
+		!embeddingsModels.length
+	)
+		return <p class="error">You need to be online to install Shabti.</p>;
 	return (
 		<form action="/install" method="post" id="install_form">
+			<ConnectivityNotice connectivity={connectivity}></ConnectivityNotice>
 			<fieldset>
 				<legend>Version</legend>
 				<p>
@@ -58,13 +73,11 @@ export const InstallOptionsForm = async (props: {
 				<p>
 					<label for="embeddings_model">Select Embeddings Model</label>
 					<select name="embeddings_model" id="embeddings_model">
-						{Object.entries(shabtiModels)
-							.filter(([_, v]) => v.tags.includes("embeddings"))
-							.map(([k]) => (
-								<option value={k} selected={k == selection.embeddingsModel}>
-									{k}
-								</option>
-							))}
+						{embeddingsModels.map((k) => (
+							<option value={k} selected={k == selection.embeddingsModel}>
+								{k}
+							</option>
+						))}
 					</select>
 				</p>
 				<p>

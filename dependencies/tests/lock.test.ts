@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as git from "../../versioning/git";
 import { useRepo } from "../../versioning/tests/fixture";
-import { type Runner, commandFor, lockActionsFor, regenerate } from "../lock";
+import { commandFor, lockActionsFor, regenerate } from "../lock";
 
 const ROOT_PACKAGE = `{
 	"name": "shabti",
@@ -125,15 +126,20 @@ describe("lockActionsFor", () => {
 });
 
 describe("regenerate", () => {
+	// the commands are recorded rather than run, so no test starts Docker
+	afterEach(() => {
+		mock.restore();
+	});
+
 	test("runs each action once, in order, in the repo root", async () => {
 		const ran: { command: string[]; cwd: string }[] = [];
-		const run: Runner = async (command, options) => {
+		spyOn(git, "run").mockImplementation(async (command, options) => {
 			ran.push({ command, cwd: options.cwd });
 			return { exitCode: 0, stdout: "", stderr: "" };
-		};
-		expect(
-			await regenerate(repo.dir, ["uv-host", "uv-docker", "bun"], { run }),
-		).toEqual(["uv lock", "bun run lock", "bun install --lockfile-only"]);
+		});
+		expect(await regenerate(repo.dir, ["uv-host", "uv-docker", "bun"])).toEqual(
+			["uv lock", "bun run lock", "bun install --lockfile-only"],
+		);
 		expect(ran.map(({ command }) => command)).toEqual([
 			["uv", "lock"],
 			["bun", "run", "lock"],
@@ -143,19 +149,15 @@ describe("regenerate", () => {
 	});
 
 	test("mentions UV_LOCK_USER when the Docker lock fails", async () => {
-		const run: Runner = async () => {
-			throw new Error("permission denied");
-		};
-		await expect(regenerate(repo.dir, ["uv-docker"], { run })).rejects.toThrow(
+		spyOn(git, "run").mockRejectedValue(new Error("permission denied"));
+		await expect(regenerate(repo.dir, ["uv-docker"])).rejects.toThrow(
 			/UV_LOCK_USER/,
 		);
 	});
 
 	test("says plainly which command failed", async () => {
-		const run: Runner = async () => {
-			throw new Error("no uv on PATH");
-		};
-		await expect(regenerate(repo.dir, ["uv-host"], { run })).rejects.toThrow(
+		spyOn(git, "run").mockRejectedValue(new Error("no uv on PATH"));
+		await expect(regenerate(repo.dir, ["uv-host"])).rejects.toThrow(
 			/uv lock failed/,
 		);
 	});

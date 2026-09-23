@@ -1,5 +1,5 @@
 /**
- * The whole network surface, in one place so a test can replace it.
+ * The whole network surface, in one place.
  *
  * Nothing here knows about registries. It exists to make three guarantees the registry modules would
  * otherwise each have to make for themselves: a dependency pinned in four files is fetched once, a
@@ -7,21 +7,11 @@
  * rate limit - are never asked two things at the same time.
  */
 
-/** the seam. A test passes a function over a table of canned responses instead of reaching the network */
-export type Http = (url: string, init?: RequestInit) => Promise<Response>;
-
 export type Options = {
-	/** default: Bun's built in fetch, which is the repo's convention for HTTP in tooling */
-	http?: Http;
-	/** completed and in-flight lookups, so the same dependency is never fetched twice */
-	memo?: Map<string, Promise<unknown>>;
 	/** total parallel requests */
 	concurrency?: number;
 	/** attempts after the first, on a network error, a 429 or a 5xx */
 	retries?: number;
-	/** injected so the backoff is deterministic in tests */
-	now?: () => number;
-	sleep?: (ms: number) => Promise<void>;
 };
 
 export type Client = {
@@ -81,42 +71,38 @@ const serialiser = () => {
 const retryable = (status: number) => status === 429 || status >= 500;
 
 /** the server's own answer to how long to wait, in seconds or as a date, when it gave one */
-const retryAfter = (response: Response, now: () => number) => {
+const retryAfter = (response: Response) => {
 	const header = response.headers.get("retry-after");
 	if (!header) return undefined;
 	const seconds = Number(header);
 	if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
 	const date = Date.parse(header);
-	return Number.isNaN(date) ? undefined : Math.max(0, date - now());
+	return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 };
 
 const BACKOFF = [500, 1500];
 
 export const client = (options: Options = {}): Client => {
-	const http = options.http ?? ((url, init) => fetch(url, init));
-	const memo = options.memo ?? new Map<string, Promise<unknown>>();
+	// completed and in-flight lookups, so the same dependency is never fetched twice
+	const memo = new Map<string, Promise<unknown>>();
 	const limit = semaphore(options.concurrency ?? 6);
 	const serial = serialiser();
 	const retries = options.retries ?? BACKOFF.length;
-	const now = options.now ?? (() => Date.now());
-	const sleep =
-		options.sleep ??
-		((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
 	const attempt = async (url: string, init?: RequestInit) => {
 		let last: unknown;
 		for (let tries = 0; tries <= retries; tries++) {
 			if (tries) {
 				const wait = BACKOFF[Math.min(tries - 1, BACKOFF.length - 1)] as number;
-				await sleep(
+				await Bun.sleep(
 					last instanceof Response
-						? (retryAfter(last, now) ?? wait)
+						? (retryAfter(last) ?? wait)
 						: // a little jitter, so a whole run of dependencies does not retry in lockstep
 							wait + (url.length % 100) * 5,
 				);
 			}
 			try {
-				const response = await http(url, init);
+				const response = await fetch(url, init);
 				if (!retryable(response.status)) return response;
 				// the body is never read on a retryable status, so let the connection go
 				await response.body?.cancel().catch(() => undefined);

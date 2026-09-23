@@ -9,6 +9,8 @@ processed_test_runs/
 shabti_config/
 my-models.ini
 shabti-models.json
+# the configurator's cache of the releases it last found on GitHub
+shabti-releases.json
 
 # generated certificates
 self_signed_certificates

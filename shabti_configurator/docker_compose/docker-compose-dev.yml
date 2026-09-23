@@ -21,9 +21,13 @@ services:
     extends:
       file: ./docker_compose_dependencies/docker-compose-shabti.yml
       service: ${SHABTI_SERVICE:-shabti}
-    image: null
+    # a plain null keeps the image extends brings in, and the build would be tagged as the release
+    image: !reset null
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      # the image build already synced the environment, and the bind mount below gives the local
+      # packages new inodes, which uv reads as needing a rebuild that can't happen offline
+      - UV_NO_SYNC=1
     build:
       context: ../../docker_containers/shabti_api
       additional_contexts:
@@ -39,9 +43,10 @@ services:
     extends:
       file: ./docker_compose_dependencies/docker-compose-shabti.yml
       service: ${SHABTI_WEB_SERVICE:-shabti-web}
-    image: null
+    image: !reset null
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      - UV_NO_SYNC=1
     build:
       context: ../../docker_containers/shabti_web
       additional_contexts:

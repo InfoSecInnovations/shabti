@@ -14,9 +14,6 @@ import { escape } from "../versioning/write";
 export const LOCK_ACTIONS = ["uv-host", "uv-docker", "bun"] as const;
 export type LockAction = (typeof LOCK_ACTIONS)[number];
 
-/** injected so a test never starts Docker and never touches the real lockfiles */
-export type Runner = typeof run;
-
 const COMMANDS: Record<LockAction, string[]> = {
 	// the root uv.lock covers the uv workspace, and these sources resolve on the host
 	"uv-host": ["uv", "lock"],
@@ -106,16 +103,11 @@ export const lockActionsFor = async (repoDir: string, files: string[]) => {
 /** the command each action would run, for a dry run or for --no-lock to print */
 export const commandFor = (action: LockAction) => COMMANDS[action].join(" ");
 
-export const regenerate = async (
-	repoDir: string,
-	actions: LockAction[],
-	options: { run?: Runner } = {},
-) => {
-	const exec = options.run ?? run;
+export const regenerate = async (repoDir: string, actions: LockAction[]) => {
 	const ran: string[] = [];
 	for (const action of actions) {
 		try {
-			await exec(COMMANDS[action] as string[], { cwd: repoDir });
+			await run(COMMANDS[action] as string[], { cwd: repoDir });
 		} catch (error) {
 			throw new Error(
 				action === "uv-docker"
