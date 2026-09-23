@@ -3,6 +3,7 @@ import AdmZip from "adm-zip";
 import { file } from "bun";
 import { Hono } from "hono";
 import js from "./assets/index.js" with { type: "file" };
+import progressJs from "./assets/progress.js" with { type: "file" };
 import clientCss from "./assets/index.css" with { type: "file" };
 import css from "./assets/style.css" with { type: "file" };
 import doInstall from "./server/doInstall";
@@ -15,7 +16,7 @@ import { manageHostsAndPorts, manageLogging } from "./server/manageSettings";
 import { ModelManagementForm } from "./server/modelManagementForm";
 import { RelaunchForm } from "./server/relaunchForm";
 import { SettingsManagementForm } from "./server/settingsManagementForm";
-import streamHtml from "./server/streamHtml";
+import { operationRoutes, runOperation } from "./server/operationRoutes";
 import { Tabs } from "./server/tabs";
 import { UninstallForm } from "./server/uninstallForm";
 import validateInstallForm from "./server/validateInstallForm";
@@ -39,8 +40,8 @@ const { values } = parseArgs({
 const devMode = !!values["dev-mode"];
 
 const app = new Hono();
-// anything thrown before the response starts streaming, a malformed form body being the realistic
-// one. Once a stream is open streamHtml owns its own errors and this is never reached
+// anything thrown before an operation starts, a malformed form body being the realistic one. Once
+// it has started the operation reports its own errors and this is never reached
 app.onError((err, c) =>
 	c.redirect(`/?err=${encodeURIComponent(describeError(err, 400))}`),
 );
@@ -62,6 +63,12 @@ app.get("/index.css", async (c) =>
 );
 app.get("/index.js", async (c) =>
 	c.body(await file(js).text(), 201, {
+		"Content-Type": "text/javascript",
+	}),
+);
+// the operation page's components, kept apart as the main page doesn't need them
+app.get("/progress.js", async (c) =>
+	c.body(await file(progressJs).text(), 201, {
 		"Content-Type": "text/javascript",
 	}),
 );
@@ -180,93 +187,52 @@ app.get("/", async (c) => {
 		</html>,
 	);
 });
-app.post("/install", (c) =>
-	c.req.formData().then((data) => {
-		if (!validateInstallForm(data)) return c.redirect("/?err=invalid-form");
-		return streamHtml(
-			c,
-			"Installing Shabti",
-			async (stream) => {
-				for await (const message of doInstall(
-					data,
-					data.get("version")!.toString(),
-					state,
-				)) {
-					await stream.writeln(await (<p>{message}</p>));
-				}
-			},
-			"Shabti installed successfully.",
-		);
-	}),
-);
-app.post("/uninstall", (c) =>
-	c.req.formData().then((data) =>
-		streamHtml(
-			c,
-			"Uninstalling Shabti",
-			async (stream) => {
-				for await (const message of doUninstall(
-					data.has("delete_models"),
-					state,
-				)) {
-					await stream.writeln(await (<p>{message}</p>));
-				}
-			},
-			"Shabti uninstalled successfully.",
-		),
+app.post("/install", async (c) => {
+	const data = await c.req.formData();
+	if (!validateInstallForm(data)) return c.redirect("/?err=invalid-form");
+	return runOperation(
+		c,
+		"Installing Shabti",
+		doInstall(data, data.get("version")!.toString(), state),
+		"Shabti installed successfully.",
+	);
+});
+app.post("/uninstall", async (c) =>
+	runOperation(
+		c,
+		"Uninstalling Shabti",
+		doUninstall((await c.req.formData()).has("delete_models"), state),
+		"Shabti uninstalled successfully.",
 	),
 );
-app.post("/manage-models", (c) =>
-	c.req.formData().then((data) =>
-		streamHtml(
-			c,
-			"Updating language models",
-			async (stream) => {
-				for await (const message of manageModels(data)) {
-					await stream.writeln(await (<p>{message}</p>));
-				}
-			},
-			"Language models updated successfully.",
-		),
+app.post("/manage-models", async (c) =>
+	runOperation(
+		c,
+		"Updating language models",
+		manageModels(await c.req.formData()),
+		"Language models updated successfully.",
 	),
 );
-app.post("/manage-logging", (c) =>
-	c.req.formData().then((data) =>
-		streamHtml(
-			c,
-			"Updating logging settings",
-			async (stream) => {
-				for await (const message of manageLogging(data, state)) {
-					await stream.writeln(await (<p>{message}</p>));
-				}
-			},
-			"Logging settings updated successfully.",
-		),
+app.post("/manage-logging", async (c) =>
+	runOperation(
+		c,
+		"Updating logging settings",
+		manageLogging(await c.req.formData(), state),
+		"Logging settings updated successfully.",
 	),
 );
-app.post("/manage-hosts", (c) =>
-	c.req.formData().then((data) =>
-		streamHtml(
-			c,
-			"Updating hosts and ports",
-			async (stream) => {
-				for await (const message of manageHostsAndPorts(data, state)) {
-					await stream.writeln(await (<p>{message}</p>));
-				}
-			},
-			"Hosts and ports updated successfully.",
-		),
+app.post("/manage-hosts", async (c) =>
+	runOperation(
+		c,
+		"Updating hosts and ports",
+		manageHostsAndPorts(await c.req.formData(), state),
+		"Hosts and ports updated successfully.",
 	),
 );
-app.post("/launch", (c) =>
-	c.req.formData().then((data) =>
-		streamHtml(c, "Launching Shabti", async (stream) => {
-			for await (const message of doLaunch(data, state)) {
-				await stream.writeln(await (<p>{message}</p>));
-			}
-		}),
-	),
+app.post("/launch", async (c) =>
+	runOperation(c, "Launching Shabti", doLaunch(await c.req.formData(), state)),
 );
+app.route("/operations", operationRoutes);
 
 console.log("Shabti Configurator");
 console.log(`${packageJson.version}\n`);

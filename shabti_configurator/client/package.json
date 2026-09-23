@@ -12,6 +12,7 @@
 		"@zxcvbn-ts/core": "3.0.4",
 		"@zxcvbn-ts/language-common": "3.0.4",
 		"@zxcvbn-ts/language-en": "3.0.2",
+		"lit": "3.3.3",
 		"snabbdom": "3.6.4",
 		"tom-select": "2.6.2"
 	}

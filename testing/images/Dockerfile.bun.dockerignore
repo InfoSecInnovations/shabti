@@ -20,6 +20,7 @@ testing/processed_test_runs
 testing/self_signed_certificates
 shabti_configurator/assets/docker_compose.zip
 shabti_configurator/assets/index.js
+shabti_configurator/assets/progress.js
 shabti_configurator/assets/index.css
 
 # nothing in the image needs these, and they carry generated secrets

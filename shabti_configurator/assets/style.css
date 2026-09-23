@@ -101,6 +101,22 @@ section {
 	margin-block-start: 0;
 }
 
+/* the log of a running operation, which scrolls rather than growing the page */
+shabti-console {
+	display: block;
+	height: 60vh;
+	overflow-y: auto;
+	border: 1px #4b0082 solid;
+	padding: 0 1rem;
+}
+
+progress {
+	accent-color: #4b0082;
+	width: 20rem;
+	margin: 0 0.6em;
+	vertical-align: middle;
+}
+
 /* tom-select replaces the native select with a div, so it needs the spacing and inline flow
    the rules above give the other form controls */
 .ts-wrapper {

@@ -1,9 +1,8 @@
 import { HTTPException } from "hono/http-exception";
-import * as humanize from "ts-humanize";
 import getDefaultModelSelection from "../getDefaultModelSelection";
-import downloadModel from "./downloadModel";
 import { requireModels } from "./listDownloadedModels";
 import logMessage from "./logMessage";
+import modelDownloadProgress from "./modelDownloadProgress";
 import readModelsIni from "./readModelsIni";
 import { startLlamaCpp, stopLlamaCpp } from "./restartLlamaCpp";
 import writeModelsIni from "./writeModelsIni";
@@ -53,13 +52,8 @@ export default async function* (options: FormData) {
 	// the case where a model is in the ini file but was never successfully downloaded.
 	// offline, requireModels has already confirmed they're all downloaded
 	if (online) {
-		for (const modelName of [...chatModels, embeddingsModel]) {
-			for await (const json of downloadModel(modelName)) {
-				yield logMessage(
-					`loaded ${humanize.bytes(json.progress)} / ${humanize.bytes(json.total)} of file ${json.file} for model ${json.modelName}`,
-				);
-			}
-		}
+		for (const modelName of [...chatModels, embeddingsModel])
+			yield* modelDownloadProgress(modelName);
 	}
 	if (removed.length)
 		yield logMessage(

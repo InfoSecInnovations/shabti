@@ -11,8 +11,7 @@ import logMessage from "./logMessage";
 import createVenv from "./createVenv";
 import getKeycloakClientSecret from "./getKeycloakClientSecret";
 import getCurrentVersion from "./getCurrentVersion";
-import downloadModel from "./downloadModel";
-import * as humanize from "ts-humanize";
+import modelDownloadProgress from "./modelDownloadProgress";
 import getDefaultModelSelection from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
 import getVersionData from "./getVersionData";
@@ -176,13 +175,9 @@ export default async function* (
 	await $`docker compose -f ${loaderComposeFile} up -d`; // launch llama.cpp
 	// offline, requireModels has already confirmed they're all downloaded
 	if (online) {
-		for (const modelName of [...chatModels, embeddingsModel]) {
-			for await (const json of downloadModel(modelName)) {
-				yield logMessage(
-					`loaded ${humanize.bytes(json.progress)} / ${humanize.bytes(json.total)} of file ${json.file} for model ${json.modelName}`,
-				);
-			}
-		} // ensure requested models are downloaded so they will be available once the install is done
+		// ensure requested models are downloaded so they will be available once the install is done
+		for (const modelName of [...chatModels, embeddingsModel])
+			yield* modelDownloadProgress(modelName);
 	}
 	await $`docker compose -f ${loaderComposeFile} down`;
 	yield logMessage("launching Docker containers...");

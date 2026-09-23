@@ -46,6 +46,7 @@ dist
 # assets built by scripts
 shabti_configurator/assets/docker_compose.zip
 shabti_configurator/assets/index.js
+shabti_configurator/assets/progress.js
 shabti_configurator/assets/index.css
 
 # avoid accidentally committing orphaned node_modules directories after deleting or rename a JS package!
