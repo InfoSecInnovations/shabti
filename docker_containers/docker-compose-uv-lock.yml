@@ -6,7 +6,7 @@ name: shabti-uv-lock
 services:
   uv-lock:
     # keep this in step with the FROM lines in shabti_api/Dockerfile and shabti_web/Dockerfile
-    image: astral/uv:0.11.1-python3.14-trixie-slim
+    image: astral/uv:0.12.18-python3.14-trixie-slim
     # on Linux, set UV_LOCK_USER to "$(id -u):$(id -g)" so the lockfiles aren't written as root
     user: "${UV_LOCK_USER:-0:0}"
     # using the default bridge stops Compose creating and leaving behind a network on every run

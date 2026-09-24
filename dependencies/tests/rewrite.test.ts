@@ -51,6 +51,11 @@ FROM base AS local
 RUN uv sync --locked
 `;
 
+const BUN_DOCKERFILE = `FROM debian:13-slim
+
+COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
+`;
+
 const UV_LOCK_COMPOSE = `services:
   uv-lock:
     # keep this in step with the FROM lines in shabti_api/Dockerfile and shabti_web/Dockerfile
@@ -77,6 +82,7 @@ const FILES = {
 	"shabti_cli/package.json": CLI_PACKAGE,
 	"docker_containers/shabti_api/pyproject.toml": API_PYPROJECT,
 	"docker_containers/shabti_api/Dockerfile": DOCKERFILE,
+	"testing/images/Dockerfile.bun": BUN_DOCKERFILE,
 	"docker_containers/docker-compose-uv-lock.yml": UV_LOCK_COMPOSE,
 	"docker_compose/docker-compose-services.yml": SERVICES_COMPOSE,
 };
@@ -174,6 +180,15 @@ describe("rewriting", () => {
 		expect(
 			await repo.read("docker_containers/shabti_api/Dockerfile"),
 		).toStartWith("FROM astral/uv:0.12.3-python3.14-trixie-slim AS base");
+	});
+
+	test("rewrites the image a COPY --from names, and nothing else on the line", async () => {
+		expect(await setTo("oven/bun", "1.3.12")).toEqual([
+			"testing/images/Dockerfile.bun",
+		]);
+		expect(await repo.read("testing/images/Dockerfile.bun")).toBe(
+			BUN_DOCKERFILE.replace("oven/bun:1.3.11-slim", "oven/bun:1.3.12-slim"),
+		);
 	});
 
 	test("keeps a quoted image reference quoted, and its label", async () => {

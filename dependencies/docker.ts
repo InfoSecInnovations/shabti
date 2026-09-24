@@ -127,8 +127,20 @@ export const composePins = (file: string, text: string): Pin[] => {
 
 const FROM = /^\s*FROM\s+((?:--[\w-]+=\S+\s+)*)(\S+)/i;
 const STAGE = /^\s*FROM\s+.*\sAS\s+(\S+)\s*$/i;
+const COPY_FROM = /^\s*COPY\s+(?:--[\w-]+=\S+\s+)*--from=(\S+)/i;
 
-/** every image a Dockerfile builds from, skipping the stages it declares for itself */
+/**
+ * An image a `COPY --from` names, which only a tag or digest identifies: a bare name is as likely to be
+ * a build context - `COPY --from=python_packages` in three of our Dockerfiles - as an image.
+ */
+const copiedImage = (reference: string, stages: Set<string>) => {
+	if (stages.has(reference.toLowerCase()) || /^\d+$/.test(reference))
+		return null;
+	const image = parseImage(reference);
+	return image && (image.tag || image.digest) ? image : null;
+};
+
+/** every image a Dockerfile builds from or copies out of, skipping the stages it declares for itself */
 export const dockerfilePins = (file: string, text: string): Pin[] => {
 	const lines = text.split("\n");
 	// four of the seven real FROM lines in this repo name an earlier stage rather than an image
@@ -140,6 +152,13 @@ export const dockerfilePins = (file: string, text: string): Pin[] => {
 	);
 
 	return lines.flatMap((line, index) => {
+		const copied = COPY_FROM.exec(line)?.[1];
+		if (copied) {
+			const image = copiedImage(copied, stages);
+			return image
+				? [pinOf(file, "COPY --from", index + 1, copied, image)]
+				: [];
+		}
 		const reference = FROM.exec(line)?.[2];
 		if (!reference) return [];
 		const lowered = reference.toLowerCase();

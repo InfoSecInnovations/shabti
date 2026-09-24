@@ -12,6 +12,7 @@ import { type Client, type Options, client } from "./http";
 import { npmCatalogue } from "./registries/npm";
 import { ociCatalogue } from "./registries/oci";
 import { pypiCatalogue } from "./registries/pypi";
+import { SYSTEM_TOOLS } from "./system";
 import { type TagShape, shapeOf } from "./tag";
 import type {
 	Catalogue,
@@ -39,6 +40,8 @@ const imageOf = (dependency: Dependency): ImageRef | undefined =>
 export const unsupported = (dependency: Dependency): string | null => {
 	if (dependency.precision === "alias")
 		return "aliased, so its version is decided by another package";
+	if (dependency.ecosystem === "system")
+		return dependency.versions.length ? null : "not installed";
 	if (dependency.ecosystem !== "docker") return null;
 	const image = imageOf(dependency);
 	if (!image) return "no image reference to read";
@@ -76,6 +79,11 @@ export const registry =
 									...catalogue.notes,
 								],
 							};
+				}
+				case "system": {
+					const tool = SYSTEM_TOOLS[dependency.id];
+					if (!tool) throw new Error(`${dependency.id} is not a system tool`);
+					return tool.catalogue(deps);
 				}
 			}
 		});

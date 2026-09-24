@@ -11,7 +11,8 @@ import * as git from "../../versioning/git";
 import { useRepo } from "../../versioning/tests/fixture";
 import * as catalogueModule from "../catalogue";
 import { parseSpec, render, set } from "../set";
-import type { Catalogue, Release } from "../types";
+import * as systemModule from "../system";
+import type { Catalogue, Dependency, Release } from "../types";
 
 const ROOT_PACKAGE = `{
 	"name": "fixture-root",
@@ -38,12 +39,17 @@ const COMPOSE = `services:
     image: astral/uv:0.9.6-python3.14-trixie-slim
 `;
 
+const BUN_DOCKERFILE = `FROM debian:13-slim
+COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
+`;
+
 const repo = useRepo({
 	packages: [],
 	files: {
 		"package.json": ROOT_PACKAGE,
 		"pyproject.toml": ROOT_PYPROJECT,
 		"docker-compose.yml": COMPOSE,
+		"testing/images/Dockerfile.bun": BUN_DOCKERFILE,
 	},
 });
 
@@ -63,7 +69,22 @@ const CATALOGUES: Record<string, Catalogue> = {
 	commander: catalogue(["14.0.0", "15.0.0", "15.1.0"]),
 	"@types/semver": catalogue(["7.7.0", "7.8.0", "7.9.0"]),
 	"astral/uv": catalogue(["0.9.6", "0.9.7"]),
+	bun: catalogue(["1.3.10", "1.3.11", "1.3.12"]),
+	uv: catalogue(["0.11.1", "0.11.7", "0.12.0"]),
+	"oven/bun": catalogue(["1.3.11", "1.3.12"]),
 };
+
+/** the installed tools, so no test asks this machine what it has */
+const tool = (name: string, version?: string): Dependency => ({
+	id: name,
+	ecosystem: "system",
+	name,
+	occurrences: [],
+	versions: version ? [version] : [],
+	agreement: "agreed",
+	precision: "exact",
+	executable: version ? `/usr/local/bin/${name}` : undefined,
+});
 
 /** what the registry answers with this test, so nothing here needs a network */
 let catalogues: Record<string, Catalogue>;
@@ -73,6 +94,10 @@ const stub = (overrides: Record<string, Catalogue> = {}) => {
 
 beforeEach(() => {
 	stub();
+	spyOn(systemModule, "systemTools").mockResolvedValue([
+		tool("bun", "1.3.11"),
+		tool("uv", "0.11.1"),
+	]);
 	spyOn(catalogueModule, "registry").mockReturnValue(async (dependency) => {
 		const found = catalogues[dependency.id];
 		if (!found) throw new Error(`nothing stubbed for ${dependency.id}`);
@@ -303,6 +328,90 @@ describe("warnings", () => {
 			"wrote the tag edge without checking it exists",
 		]);
 		expect(await repo.read("docker-compose.yml")).toContain("astral/uv:edge");
+	});
+});
+
+describe("system tools", () => {
+	test("upgrade before the lockfiles are regenerated", async () => {
+		const { ran } = recorder();
+		const result = await setting(["uv@0.11.7", "fastapi@0.137.0"]);
+
+		expect(ran).toEqual([
+			["uv", "self", "update", "0.11.7"],
+			["uv", "lock"],
+		]);
+		expect(result.upgraded).toEqual(["uv self update 0.11.7"]);
+		expect(result.files).toEqual(["pyproject.toml"]);
+	});
+
+	test("a bare bun upgrades to the latest", async () => {
+		const { ran } = recorder();
+		const result = await setting(["bun"]);
+
+		expect(ran).toEqual([["bun", "upgrade"]]);
+		expect(render(result)).toContain("1.3.11 -> 1.3.12");
+		expect(render(result)).toContain("/usr/local/bin/bun");
+		expect(render(result)).toContain("ran bun upgrade");
+	});
+
+	test("setting bun moves the oven/bun image with it", async () => {
+		recorder();
+		const result = await setting(["bun"]);
+
+		expect(result.files).toEqual(["testing/images/Dockerfile.bun"]);
+		expect(await repo.read("testing/images/Dockerfile.bun")).toContain(
+			"COPY --from=oven/bun:1.3.12-slim /usr/local/bin/bun",
+		);
+	});
+
+	test("bun already at the version still brings the image into line", async () => {
+		spyOn(systemModule, "systemTools").mockResolvedValue([
+			tool("bun", "1.3.12"),
+			tool("uv", "0.11.1"),
+		]);
+		const { ran } = recorder();
+		const result = await setting(["bun@1.3.12"]);
+
+		expect(ran).toEqual([]);
+		expect(result.upgraded).toEqual([]);
+		expect(await repo.read("testing/images/Dockerfile.bun")).toContain(
+			"oven/bun:1.3.12-slim",
+		);
+	});
+
+	test("a bun version with no image is refused before anything runs", async () => {
+		const { ran } = recorder();
+
+		await expect(setting(["bun@1.3.10"])).rejects.toThrow(
+			/oven\/bun 1\.3\.10 is not published/,
+		);
+		expect(ran).toEqual([]);
+		expect(await repo.read("testing/images/Dockerfile.bun")).toBe(
+			BUN_DOCKERFILE,
+		);
+	});
+
+	test("a tool at the version asked for runs nothing", async () => {
+		const { ran } = recorder();
+		const result = await setting(["uv@0.11.1"]);
+
+		expect(ran).toEqual([]);
+		expect(render(result)).toContain("already set");
+	});
+
+	test("a tool that is not installed is refused, and nothing is written", async () => {
+		spyOn(systemModule, "systemTools").mockResolvedValue([
+			tool("bun", "1.3.11"),
+			tool("uv"),
+		]);
+		const { ran } = recorder();
+		const pyproject = await repo.read("pyproject.toml");
+
+		await expect(setting(["uv", "fastapi@0.137.0"])).rejects.toThrow(
+			/cannot set uv: not installed/,
+		);
+		expect(ran).toEqual([]);
+		expect(await repo.read("pyproject.toml")).toBe(pyproject);
 	});
 });
 

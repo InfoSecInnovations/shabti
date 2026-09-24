@@ -1,4 +1,4 @@
-FROM astral/uv:0.11.1-python3.14-trixie-slim AS base
+FROM astral/uv:0.12.18-python3.14-trixie-slim AS base
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/

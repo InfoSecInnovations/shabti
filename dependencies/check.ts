@@ -1,6 +1,7 @@
 /**
  * Reports every third party dependency this repo pins directly: what is pinned, whether the pin is
  * exact, whether every file naming it agrees, and what newer stable and prerelease versions exist.
+ * The uv and Bun installed on this machine are reported alongside, under their own ecosystem.
  *
  * bun ./dependencies/check.ts [--all] [--json] [--no-latest-check] [--fail-if-behind]
  *
@@ -15,6 +16,7 @@ import { type Exception, exemption, readExceptions } from "./exceptions";
 import type { Options } from "./http";
 import { group, readPins } from "./read";
 import { type Tagged, byEcosystem, tabulate, where } from "./render";
+import { systemTools } from "./system";
 import type { Dependency, Freshness, Precision, Release } from "./types";
 
 export type Report = {
@@ -56,7 +58,11 @@ export const check = async ({
 			dependency,
 			reason: reasonFor(dependency, exceptions),
 		}));
-	const checked = all.filter((dependency) => !isExempt(dependency, exceptions));
+	// added after the exemptions, which a tool with no occurrences would otherwise vacuously satisfy
+	const checked = [
+		...all.filter((dependency) => !isExempt(dependency, exceptions)),
+		...(await systemTools(repoDir)),
+	];
 	const found = await freshness(checked, {
 		...options,
 		resolveLatest,
@@ -109,8 +115,11 @@ const pinned = (dependency: Dependency) => {
 const available = (release?: Release) =>
 	release && (release.raw ?? release.version);
 
+/** a system tool lives in no file, so its row says which executable was asked */
 const files = (dependency: Dependency) =>
-	where(dependency.occurrences.map((pin) => pin.file));
+	dependency.ecosystem === "system"
+		? (dependency.executable ?? "-")
+		: where(dependency.occurrences.map((pin) => pin.file));
 
 /** the precisions that are a pin someone should tighten, as against `alias`, which nothing can pin */
 const IMPRECISE: Precision[] = ["absent", "tag", "range", "compatible"];

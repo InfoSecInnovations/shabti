@@ -2,7 +2,7 @@
  * Sets third party dependencies to exact versions everywhere the repo pins them, then regenerates
  * whichever lockfiles that invalidated.
  *
- * bun ./dependencies/set.ts <name[@version]...> [--ecosystem <python|node|docker>] [--tag] [--no-lock] [--json]
+ * bun ./dependencies/set.ts <name[@version]...> [--ecosystem <python|node|docker|system>] [--tag] [--no-lock] [--json]
  *
  * A version is never compared against the one already pinned: moving backwards out of a bad release is
  * as legitimate as moving forwards, so the only question asked is whether the version exists. That check
@@ -18,6 +18,10 @@
  * every edit planned before anything is written - so one unknown name writes nothing at all. Every
  * refusal is collected rather than the first one thrown, because three typos are worth hearing about in
  * one run rather than three.
+ *
+ * `bun` and `uv` name the tools installed on this machine. Setting one runs its own upgrade - `bun
+ * upgrade`, Bun's installer for any other version, `uv self update` - before any file is written.
+ * Setting bun also sets the oven/bun image to the same version.
  */
 
 import { Command, Option } from "commander";
@@ -30,6 +34,7 @@ import { compare, parse } from "./pep440";
 import { group, readPins } from "./read";
 import { type Tagged, byEcosystem, count, tabulate, where } from "./render";
 import { type Edit, applyEdits, plannedEdits } from "./rewrite";
+import { SYSTEM_TOOLS, systemTools, upgrade } from "./system";
 import {
 	ECOSYSTEMS,
 	type Catalogue,
@@ -46,12 +51,16 @@ export type Change = {
 	from: string[];
 	to: string;
 	files: string[];
+	/** system only: the executable that was upgraded */
+	executable?: string;
 	warnings: string[];
 };
 
 export type Result = {
 	changes: Change[];
 	files: string[];
+	/** the system tool upgrades that ran */
+	upgraded: string[];
 	locked: string[];
 	/** about the run rather than about any one dependency */
 	warnings: string[];
@@ -161,7 +170,14 @@ const reasonOf = (error: unknown) =>
 
 /** one spec resolved to the version to write, or the reason it cannot be */
 type Resolution =
-	| { ok: true; dependency: Dependency; to: string; warnings: string[] }
+	| {
+			ok: true;
+			dependency: Dependency;
+			to: string;
+			/** the registry's latest stable, which decides how bun upgrades */
+			latest?: string;
+			warnings: string[];
+	  }
 	| { ok: false; reason: string };
 
 /**
@@ -183,7 +199,7 @@ const resolve = async (
 		const dependency = find(dependencies, name, ecosystem);
 
 		// a tag with no version in it has nothing to validate against, so --tag is taken on trust
-		if (literalTag) {
+		if (literalTag && dependency.ecosystem !== "system") {
 			if (!version)
 				return {
 					ok: false,
@@ -201,17 +217,17 @@ const resolve = async (
 		if (reason)
 			return { ok: false, reason: `cannot set ${dependency.name}: ${reason}` };
 		const catalogue = await look(dependency);
+		const latest = catalogue.latestStable?.version;
 
 		if (!version) {
 			// the same release the report calls the latest, so it is already neither a prerelease nor
 			// withdrawn; a package with only prereleases has none, and choosing one of those is a decision
-			const latest = catalogue.latestStable;
 			if (!latest)
 				return {
 					ok: false,
 					reason: `${dependency.name} has no stable release to move to, so name the version you want`,
 				};
-			return { ok: true, dependency, to: latest.version, warnings: [] };
+			return { ok: true, dependency, to: latest, latest, warnings: [] };
 		}
 
 		const release = matching(catalogue, dependency.ecosystem, version);
@@ -225,6 +241,7 @@ const resolve = async (
 			dependency,
 			// the registry's own spelling, so the manifest gets the canonical one
 			to: release.version,
+			latest,
 			warnings: release.withdrawn
 				? [`${release.version} is ${release.withdrawn}`]
 				: [],
@@ -235,6 +252,26 @@ const resolve = async (
 };
 
 type Planned = { resolution: Extract<Resolution, { ok: true }>; edits: Edit[] };
+
+/**
+ * `image@version` for every image that follows a system tool being set, when the repo pins it. Asked
+ * for even when the tool is already at the version, which is how an image left behind by an upgrade
+ * made outside this command is brought back into line.
+ */
+const followingImages = (
+	dependencies: Dependency[],
+	resolutions: Resolution[],
+) =>
+	resolutions.flatMap((resolution) => {
+		if (!resolution.ok || resolution.dependency.ecosystem !== "system")
+			return [];
+		const image = SYSTEM_TOOLS[resolution.dependency.id]?.image;
+		const pinned = dependencies.some(
+			(dependency) =>
+				dependency.ecosystem === "docker" && dependency.id === image,
+		);
+		return image && pinned ? [`${image}@${resolution.to}`] : [];
+	});
 
 export const set = async ({
 	repoDir,
@@ -252,7 +289,10 @@ export const set = async ({
 	lock?: boolean;
 }): Promise<Result> => {
 	if (!specs.length) throw new Error("name at least one dependency to set");
-	const dependencies = group(await readPins(repoDir));
+	const dependencies = [
+		...group(await readPins(repoDir)),
+		...(await systemTools(repoDir)),
+	];
 	// one client for the whole run, so its memo, its concurrency limit and its per host serialisation
 	// hold across every lookup instead of being rebuilt for each dependency
 	const look = registry(client(options), { resolveLatest: false });
@@ -261,6 +301,15 @@ export const set = async ({
 		specs.map((spec) =>
 			resolve(dependencies, spec, { ecosystem, literalTag, look }),
 		),
+	);
+
+	// an image that follows a system tool is set to the same version, and checked like any other spec
+	resolutions.push(
+		...(await Promise.all(
+			followingImages(dependencies, resolutions).map((spec) =>
+				resolve(dependencies, spec, { ecosystem: "docker", look }),
+			),
+		)),
 	);
 
 	const refused = resolutions.flatMap((resolution) =>
@@ -299,6 +348,14 @@ export const set = async ({
 	if (refused.length) throw new Error(refused.join("\n"));
 
 	const plans = planned.filter((plan): plan is Planned => !!plan);
+	// before anything is written, so a failed upgrade leaves the tree alone, and so the lockfiles below
+	// are regenerated by the tools they are being moved to
+	const upgraded = await upgrade(
+		repoDir,
+		plans
+			.map(({ resolution }) => resolution)
+			.filter(({ dependency }) => dependency.ecosystem === "system"),
+	);
 	const files = await applyEdits(
 		repoDir,
 		plans.flatMap((plan) => plan.edits),
@@ -316,19 +373,32 @@ export const set = async ({
 			files: [...new Set(edits.map((edit) => edit.file))]
 				.filter((file) => written.has(file))
 				.sort(),
+			executable: resolution.dependency.executable,
 			warnings: resolution.warnings,
 		})),
 		files,
+		upgraded: upgraded.ran,
 		locked: lock ? await regenerate(repoDir, actions) : actions.map(commandFor),
-		warnings:
-			!lock && actions.length
+		warnings: [
+			...upgraded.warnings,
+			...(!lock && actions.length
 				? [`did not run: ${actions.map(commandFor).join(", ")}`]
-				: [],
+				: []),
+		],
 	};
 };
 
 /** alphabetical within each ecosystem, as `check` lists them, so a name is where you look for it */
 const byName = (a: Change, b: Change) => a.name.localeCompare(b.name);
+
+const rightOf = (change: Change) => {
+	if (change.ecosystem === "system")
+		return change.from.includes(change.to)
+			? "already set"
+			: (change.executable ?? "-");
+	// a pin already at the version asked for is written nowhere, which is the whole row
+	return change.files.length ? where(change.files) : "already set";
+};
 
 export const render = (
 	result: Result,
@@ -343,8 +413,7 @@ export const render = (
 						ecosystem: change.ecosystem,
 						left: change.name,
 						middle: `${change.from.join(", ") || "-"} -> ${change.to}`,
-						// a pin already at the version asked for is written nowhere, which is the whole row
-						right: change.files.length ? where(change.files) : "already set",
+						right: rightOf(change),
 					}),
 				),
 			),
@@ -355,6 +424,7 @@ export const render = (
 		...lines,
 		"",
 		`${result.changes.length} set, wrote ${count(result.files.length, "file")}`,
+		...(result.upgraded.length ? [`ran ${result.upgraded.join(", ")}`] : []),
 		// what --no-lock leaves behind is a command to run, not a thing that happened
 		...(result.locked.length
 			? [
@@ -370,7 +440,7 @@ if (import.meta.main) {
 	const command = new Command()
 		.argument(
 			"<specs...>",
-			"the dependencies to set, each as name@version, or name alone for the latest",
+			"the dependencies to set, each as name@version, or name alone for the latest; bun and uv are the installed tools",
 		)
 		.addOption(
 			new Option(

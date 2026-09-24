@@ -1,8 +1,10 @@
 # Third party dependencies
 
 Shabti pins third party dependencies in four kinds of file: `pyproject.toml`, `package.json`, the
-docker compose `image:` lines, and the Dockerfile `FROM` lines. `dependencies/` reports what is
-pinned against what has been published, and sets a pin to a version you choose.
+docker compose `image:` lines, and the Dockerfile `FROM` and `COPY --from` lines. A `COPY --from`
+is only read when it names a tag or digest, since a bare name may be a build context.
+`dependencies/` reports what is pinned against what has been published, and sets a pin to a version
+you choose.
 
 Only pins the repo declares directly are read. Nothing here reads a lockfile except
 [Migrating](#migrating), so a transitive dependency can never turn up in the report.
@@ -47,7 +49,7 @@ the newer one, so `bun run deps:set -- fastapi` moves the pin to what the report
 
 | flag | |
 | --- | --- |
-| `--ecosystem <python\|node\|docker>` | when the same name is pinned in more than one |
+| `--ecosystem <python\|node\|docker\|system>` | when the same name is pinned in more than one |
 | `--tag` | write the version as the whole image tag, for a tag with no version to substitute into |
 | `--no-lock` | rewrite the pins but print the lockfile commands instead of running them |
 | `--json` | one line of JSON instead of the table |
@@ -60,6 +62,27 @@ regenerated once at the end however many dependencies moved.
 
 A docker `set` needs no extra step for the configurator — `zipDockerCompose.ts` runs inside every
 `build_*` script, so the zipped compose files pick the change up.
+
+## System tools
+
+The `bun` and `uv` on your PATH are listed under the `system` ecosystem, with the executable in place
+of a file. Their latest versions come from npm's `bun` package and PyPI's `uv`. A tool that is not
+installed is listed under `not supported`.
+
+`bun run deps:set -- bun uv@0.11.7` upgrades them before any file is written, so the lockfiles are
+regenerated with the new versions:
+
+- `bun` at the latest runs `bun upgrade`; any other version runs Bun's installer. On Windows the
+  installer refuses while bun is open, which it always is here, so the command is printed to run
+  yourself instead.
+- `uv` runs `uv self update <version>`, which only works for a uv installed with the standalone
+  installer.
+
+Setting `bun` also sets the `oven/bun` image that
+[testing/images/Dockerfile.bun](../../testing/images/Dockerfile.bun) copies bun from to the same
+version, so the tests run the Bun you develop with. It is checked like any other pin, so a Bun version
+with no matching image is refused before anything runs. `bun run deps:set -- bun@<installed version>`
+upgrades nothing and only moves the image, for when Bun was upgraded some other way.
 
 ## Migrating
 

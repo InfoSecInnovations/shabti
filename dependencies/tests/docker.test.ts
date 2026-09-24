@@ -196,4 +196,29 @@ describe("dockerfilePins", () => {
 		);
 		expect(pins.map((pin) => pin.id)).toEqual(["astral/uv", "postgres"]);
 	});
+
+	test("reads an image a COPY --from takes a file out of", () => {
+		const pins = dockerfilePins(
+			"testing/images/Dockerfile.bun",
+			"FROM astral/uv:0.11.1\n\nCOPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun\n",
+		);
+		expect(pins.map((pin) => pin.id)).toEqual(["astral/uv", "oven/bun"]);
+		expect(pins[1]?.version).toBe("1.3.11");
+		expect(pins[1]?.specifier).toBe("1.3.11-slim");
+		expect(pins[1]?.location).toBe("COPY --from");
+		expect(pins[1]?.line).toBe(3);
+	});
+
+	test("skips a COPY --from that names a stage, a build context or an index", () => {
+		const pins = dockerfilePins(
+			"Dockerfile",
+			[
+				"FROM astral/uv:0.11.1 AS build",
+				"COPY --from=build /app /app",
+				"COPY --from=python_packages ./shabti_util /app/shabti_util/",
+				"COPY --chown=1000 --from=0 /app /app",
+			].join("\n"),
+		);
+		expect(pins.map((pin) => pin.location)).toEqual(["FROM"]);
+	});
 });

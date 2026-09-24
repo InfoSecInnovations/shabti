@@ -7,9 +7,9 @@
 # on the image that ships it -- the same pin as docker_containers/shabti_api/Dockerfile, so there is
 # one uv version in the repo rather than two -- also means the bundled Python satisfies the
 # requires-python the fixtures declare. bun is a single static binary and copies in cleanly.
-FROM astral/uv:0.11.1-python3.14-trixie-slim
+FROM astral/uv:0.12.18-python3.14-trixie-slim
 
-COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1.4.2-slim /usr/local/bin/bun /usr/local/bin/bun
 # what oven/bun's own image sets up for containers
 ENV BUN_INSTALL_BIN=/usr/local/bin \
 	BUN_RUNTIME_TRANSPILER_CACHE_PATH=0

@@ -236,6 +236,24 @@ describe("sections are the kind of mismatch, not the ecosystem", () => {
 	});
 });
 
+describe("system tools", () => {
+	test("are listed under their own ecosystem with the executable", () => {
+		const bun = dependency({
+			id: "bun",
+			name: "bun",
+			ecosystem: "system",
+			occurrences: [],
+			versions: ["1.3.11"],
+			executable: "/usr/local/bin/bun",
+		});
+		const text = render(report([behind(bun, release("1.3.12"))]));
+		const { heading, row } = lineIndex(text);
+
+		expect(row("bun")).toBeGreaterThan(heading("system"));
+		expect(text).toContain("1.3.11 -> 1.3.12  /usr/local/bin/bun");
+	});
+});
+
 describe("summary", () => {
 	test("counts what it found", () => {
 		expect(render(report([]))).toContain("0 dependencies, 0 behind");

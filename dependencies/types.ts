@@ -4,7 +4,8 @@
  * this is the seam between them.
  */
 
-export const ECOSYSTEMS = ["python", "node", "docker"] as const;
+/** system is the uv and Bun installed on this machine, which no file pins; see system.ts */
+export const ECOSYSTEMS = ["python", "node", "docker", "system"] as const;
 export type Ecosystem = (typeof ECOSYSTEMS)[number];
 
 /** the file shapes a pin can be written in. compose and dockerfile are both the docker ecosystem */
@@ -84,6 +85,8 @@ export type Dependency = {
 	precision: Precision;
 	/** docker only, and shared by every occurrence because the id is derived from it */
 	image?: Omit<ImageRef, "tag" | "digest">;
+	/** system only: the executable on PATH, absent when the tool is not installed */
+	executable?: string;
 };
 
 export type Release = {
