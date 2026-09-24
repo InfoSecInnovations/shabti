@@ -1,9 +1,16 @@
-import { beforeAll, beforeEach, describe, expect, jest, test } from "bun:test";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	jest,
+	test,
+} from "bun:test";
 import { ShabtiClient } from "../client";
 import apiUrl from "./apiUrl";
 import path = require("node:path");
 import { randomBytes } from "node:crypto";
-import { afterEach } from "node:test";
 
 const filename = "test_doc.txt";
 const testDocPath = path.join(import.meta.dir, filename);
@@ -59,6 +66,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 						collection.collectionName == collectionName,
 				),
 			).toBeTrue();
+			await client.deleteCollection(collectionId); // clean up the collection
 		});
 		describe("Node Client - Security disabled Shabti instance - tests with collection ID", () => {
 			let collectionId: string;

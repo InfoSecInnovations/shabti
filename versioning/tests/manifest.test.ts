@@ -108,13 +108,13 @@ describe("nameIn", () => {
 		expect(
 			nameIn("a/pyproject.toml", '[project]\nversion = "1.2.3"\n'),
 		).toBeNull();
-		// Bun's TOML parser reads this as a bare key and an unquoted value, so it is
-		// a manifest without a name rather than one that failed to parse
-		expect(nameIn("a/pyproject.toml", "not a manifest")).toBeNull();
 	});
 
 	test("throws for text that does not parse, naming the file", () => {
 		expect(() => nameIn("a/pyproject.toml", 'dependencies = ["a",')).toThrow(
+			/could not parse a\/pyproject.toml/,
+		);
+		expect(() => nameIn("a/pyproject.toml", "not a manifest")).toThrow(
 			/could not parse a\/pyproject.toml/,
 		);
 	});

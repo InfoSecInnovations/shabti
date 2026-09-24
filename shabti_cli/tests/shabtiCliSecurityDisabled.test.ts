@@ -109,6 +109,12 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 				// the refusal reaches the stream as a DocumentIngestError, which has no page count and no
 				// document id. it used to fall through to the progress bar, which drove it with NaN and
 				// then reported the file as ingested with an id of `undefined` - the opposite of true
+				// each test gets a fresh collection, so put the first copy in before capturing output
+				const client = getClient();
+				for await (const item of await client.insertFiles(collectionId, [
+					filePath,
+				])) {
+				}
 				const lines: string[] = [];
 				const log = jest
 					.spyOn(console, "log")
@@ -128,7 +134,6 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 				expect(output).toInclude("already in this collection");
 				expect(output).not.toInclude("undefined");
 
-				const client = getClient();
 				const docs = await client.getDocuments(collectionId);
 				expect(
 					docs.documents.filter((document) => document.filename == filename)

@@ -1,11 +1,18 @@
-import { beforeAll, describe, expect, jest, test } from "bun:test";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	jest,
+	test,
+} from "bun:test";
 import { ShabtiAuthorizationClient } from "../authClient";
 import getOpenIdConfig from "../getOpenIdConfig";
 import apiUrl from "./apiUrl";
 import * as openIdClient from "openid-client";
 import path = require("node:path");
 import { randomBytes } from "node:crypto";
-import { afterEach, beforeEach } from "node:test";
 
 const filename = "test_doc.txt";
 const testDocPath = path.join(import.meta.dir, filename);
@@ -116,7 +123,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 			["testnothing", "shared"],
 		];
 		test.each(cannotCreateCollectionUsers)(
-			"user %p can create %p collection",
+			"user %p cannot create %p collection",
 			async (username, location) => {
 				const client = await getClientForUser(username);
 				const collectionName = randomBytes(8).toString("hex");
@@ -385,7 +392,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 				"Node Client - Security enabled Shabti instance - users cannot ingest URLs",
 				(username, owner, location) => {
 					collectionIdFixture(owner, location);
-					test(`user ${username} cannot ingest into ${owner}'s ${location} collection`, async () => {
+					test(`user ${username} cannot ingest URLs into ${owner}'s ${location} collection`, async () => {
 						const client = await getClientForUser(username);
 						expect(async () => {
 							for await (const item of await client.insertUrls(collectionId, [
@@ -487,7 +494,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 					"Node Client - Security enabled Shabti instance - users can prompt",
 					(username, owner, location) => {
 						promptDocumentIdFixture(owner, location);
-						test(`user ${username} cannot delete document from ${owner}'s ${location} collection`, async () => {
+						test(`user ${username} can prompt ${owner}'s ${location} collection`, async () => {
 							const userClient = await getClientForUser(username);
 							for await (const item of await userClient.prompt(
 								collectionId,
@@ -510,7 +517,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 					"Node Client - Security enabled Shabti instance - users cannot prompt",
 					(username, owner, location) => {
 						promptDocumentIdFixture(owner, location);
-						test(`user ${username} cannot delete document from ${owner}'s ${location} collection`, async () => {
+						test(`user ${username} cannot prompt ${owner}'s ${location} collection`, async () => {
 							const userClient = await getClientForUser(username);
 							expect(async () => {
 								for await (const item of await userClient.prompt(
