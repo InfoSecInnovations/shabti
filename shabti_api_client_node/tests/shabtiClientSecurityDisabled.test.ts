@@ -180,6 +180,10 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 			const status = await getClient().opensearchStatus();
 			expect(status).toBeTrue();
 		});
+		test("get Tika status", async () => {
+			const status = await getClient().tikaStatus();
+			expect(status).toBeTrue();
+		});
 		test("get API status", async () => {
 			const status = await getClient().apiStatus();
 			expect(status).toBeTrue();

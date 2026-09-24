@@ -1,4 +1,3 @@
-import requests
 from shabti_api_client import ShabtiClient
 import pytest_asyncio
 import secrets
@@ -10,14 +9,8 @@ file_path = os.path.join(os.path.dirname(__file__), "..", "assets", filename)
 
 @pytest_asyncio.fixture(loop_scope="session", autouse=True, scope="session")
 async def shabti_client():
-    while True:
-        try:
-            requests.get("http://shabti:15131")
-            requests.get("http://opensearch-node1:9200")
-            requests.get("http://llama_cpp:11434")
-            break
-        except Exception:
-            continue
+    # nothing to wait for here: compose only starts this once the API reports healthy, which it
+    # only starts once every service it depends on does
     yield ShabtiClient("http://shabti:15131")
 
 

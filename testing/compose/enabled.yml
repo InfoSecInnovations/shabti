@@ -2,7 +2,17 @@
 # which testing/security.ts writes after createCertificates() runs.
 
 services:
+  # Keycloak comes in through stack.yml's include, as KEYCLOAK_SERVICE_FILE is set for this type.
+  # Merged into the depends_on the other files give these, so it is waited on alongside the rest
+  shabti:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
   pytest-api:
+    depends_on:
+      keycloak:
+        condition: service_healthy
     environment:
       - SHABTI_SECURITY_ENABLED=True
       - ROOT_CA=/opensearch_certs/root-ca.pem

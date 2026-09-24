@@ -1,6 +1,10 @@
 from httpx import Response
 from .exceptions import ShabtiRequestError
-from shabti_types import CollectionExistsError, IngestNotFoundError
+from shabti_types import (
+    CollectionExistsError,
+    IngestNotFoundError,
+    ServiceUnavailableError,
+)
 
 
 def raise_error(response: Response):
@@ -17,4 +21,6 @@ def raise_error(response: Response):
             # rather than a 403, so this is the ordinary outcome of attaching to a stale id
             if body["error_type"] == "IngestNotFoundError":
                 raise IngestNotFoundError(body["ingest_id"], body["message"])
+            if body["error_type"] == "ServiceUnavailableError":
+                raise ServiceUnavailableError(body["services"], body["message"])
     raise ShabtiRequestError(status_code=response.status_code, message=body)

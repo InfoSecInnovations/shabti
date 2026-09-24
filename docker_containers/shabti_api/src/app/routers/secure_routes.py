@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request
+from ..dependencies.required_services import RequiredServices
 from ..functionality.document_collections import (
     get_collections,
     create_collection,
@@ -7,6 +8,7 @@ from ..functionality.document_collections import (
 from typing import Annotated
 from shabti_keycloak import get_token_info
 from shabti_types import (
+    Service,
     AuthzCollectionCreateInfo,
     AuthzCollectionInfo,
 )
@@ -19,15 +21,24 @@ from ..dependencies.valid_access_token import valid_access_token
 
 router = APIRouter()
 
+opensearch = Depends(RequiredServices(Service.OPENSEARCH))
 
-@router.get("/collections", response_model_exclude_unset=True)
+
+@router.get(
+    "/collections", response_model_exclude_unset=True, dependencies=[opensearch]
+)
 async def get_collections_route(
     credentials: Annotated[str, Depends(valid_access_token)],
 ) -> list[AuthzCollectionInfo]:
     return await get_collections(credentials)
 
 
-@router.post("/collections", response_model_exclude_unset=True, status_code=201)
+@router.post(
+    "/collections",
+    response_model_exclude_unset=True,
+    status_code=201,
+    dependencies=[Depends(RequiredServices(Service.OPENSEARCH, Service.LLM))],
+)
 async def create_collection_route(
     collection_info: AuthzCollectionCreateInfo,
     credentials: Annotated[str, Depends(valid_access_token)],
@@ -40,7 +51,11 @@ async def create_collection_route(
     )
 
 
-@router.delete("/collections/{collection_id}", response_model_exclude_unset=True)
+@router.delete(
+    "/collections/{collection_id}",
+    response_model_exclude_unset=True,
+    dependencies=[opensearch],
+)
 async def delete_collection_route(
     collection_id: str,
     request: Request,

@@ -69,7 +69,8 @@ export default async () => {
 	]);
 	if (launched.code !== 0) throw new Error("could not launch Keycloak");
 
-	// Keycloak has no healthcheck and takes a while to import the realm, so this polls
+	// the secret is only Keycloak's to tell us once it has imported the realm, which takes a while,
+	// so this polls
 	console.log("waiting for the Keycloak client secret...");
 	const secret = await getKeycloakClientSecret();
 	await writeGeneratedEnv({ KEYCLOAK_CLIENT_SECRET: secret });

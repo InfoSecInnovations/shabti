@@ -1,3 +1,6 @@
+from .models import Service
+
+
 class ShabtiError(Exception):
     def __init__(self, message="", status=400):
         self.message = message
@@ -102,3 +105,16 @@ class EmbeddingsModelMismatchError(ShabtiError):
         super().__init__(message, 409)
         self.indexed_model = indexed_model
         self.current_model = current_model
+
+
+class ServiceUnavailableError(ShabtiError):
+    """A service the request needs is not running or not accepting requests yet."""
+
+    def __init__(self, services: list[Service], message=""):
+        super().__init__(
+            message
+            or "Required services are not available: "
+            + ", ".join(Service(service).label for service in services),
+            503,
+        )
+        self.services = services

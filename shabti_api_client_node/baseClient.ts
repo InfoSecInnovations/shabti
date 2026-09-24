@@ -317,6 +317,12 @@ export class BaseShabtiClient {
 		return json.running;
 	}
 
+	async tikaStatus(): Promise<boolean> {
+		const res = await this.makeRequest("GET", "status/tika");
+		const json = (await res.json()) as any;
+		return json.running;
+	}
+
 	// the chat model to start on: the user's last choice when security is enabled,
 	// otherwise whichever model is currently loaded
 	async getChatModelSelection(): Promise<string | null> {

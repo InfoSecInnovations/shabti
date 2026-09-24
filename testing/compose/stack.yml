@@ -29,17 +29,16 @@ services:
         python_packages: ../../python_packages
       dockerfile: Dockerfile
       target: local
-    # docker_run.py will not reach uvicorn.run until its own wait on llama.cpp's /health returns, so
-    # without this a `compose run` on a suite that only depends on shabti starts shabti on its own
-    # and it waits for a container nothing ever asked for. None of these carry a healthcheck, and
-    # none is needed: the API and the test conftests poll the ones they use.
+    # healthy rather than just started, so that shabti being healthy - which is what the runners
+    # wait on - means the whole stack is: a suite that only depends on shabti can't reach a service
+    # that is still coming up. The healthchecks themselves come from the configurator fragments.
     depends_on:
       opensearch-node1:
-        condition: service_started
+        condition: service_healthy
       llama-cpp:
-        condition: service_started
+        condition: service_healthy
       tika:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

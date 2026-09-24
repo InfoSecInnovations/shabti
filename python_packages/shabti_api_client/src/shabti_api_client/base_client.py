@@ -254,6 +254,10 @@ class BaseShabtiClient(ABC):
         response = await self._make_request("GET", "status/opensearch")
         return response.json()["running"]
 
+    async def tika_status(self) -> bool:
+        response = await self._make_request("GET", "status/tika")
+        return response.json()["running"]
+
     # the chat model to start on: the user's last choice when security is enabled, otherwise
     # whichever model is currently loaded
     async def get_chat_model_selection(self) -> str | None:

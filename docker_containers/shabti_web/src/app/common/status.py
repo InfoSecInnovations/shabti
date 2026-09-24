@@ -20,6 +20,7 @@ def status_server(
 ):
     opensearch_status = reactive.value("loading")
     llm_status = reactive.value("loading")
+    tika_status = reactive.value("loading")
     api_status = reactive.value("loading")
 
     @reactive.extended_task
@@ -41,6 +42,13 @@ def status_server(
             return "loading"
 
     @reactive.extended_task
+    async def get_tika_status():
+        try:
+            return "online" if await client.tika_status() else "offline"
+        except TransportError:
+            return "loading"
+
+    @reactive.extended_task
     async def get_api_status():
         return "online" if await client.api_status() else "offline"
 
@@ -51,6 +59,10 @@ def status_server(
     @reactive.effect
     def set_opensearch_status():
         opensearch_status.set(get_opensearch_status.result())
+
+    @reactive.effect
+    def set_tika_status():
+        tika_status.set(get_tika_status.result())
 
     @reactive.effect
     def set_api_status():
@@ -65,7 +77,7 @@ def status_server(
         reactive.invalidate_later(POLL_SECONDS if settled else RETRY_SECONDS)
         get_api_status()
 
-    # the LLM and OpenSearch statuses are obtained through the API, so the API needs to be online before we can verify the others
+    # the LLM, OpenSearch and Tika statuses are obtained through the API, so the API needs to be online before we can verify the others
     @reactive.effect
     def on_api_status():
         # this one read is deliberately not isolated: it is what makes this fire the moment the API
@@ -76,14 +88,17 @@ def status_server(
                 online
                 and llm_status.get() == "online"
                 and opensearch_status.get() == "online"
+                and tika_status.get() == "online"
             )
         reactive.invalidate_later(POLL_SECONDS if settled else RETRY_SECONDS)
         if online:
             get_llm_status()
             get_opensearch_status()
+            get_tika_status()
         else:
             llm_status.set("loading")
             opensearch_status.set("loading")
+            tika_status.set("loading")
 
     @render.ui
     def status_widget():
@@ -104,6 +119,10 @@ def status_server(
             items.append(
                 ui.markdown(f"{'🟢' if llm_status.get() == 'online' else '🔴'} LLM")
             )
+        if tika_status.get() != "loading":
+            items.append(
+                ui.markdown(f"{'🟢' if tika_status.get() == 'online' else '🔴'} Tika")
+            )
         req(items)
         return ui.card(*items)
 
@@ -113,6 +132,7 @@ def status_server(
             "api": api_status.get() == "online",
             "opensearch": opensearch_status.get() == "online",
             "llm": llm_status.get() == "online",
+            "tika": tika_status.get() == "online",
         }
 
     return result

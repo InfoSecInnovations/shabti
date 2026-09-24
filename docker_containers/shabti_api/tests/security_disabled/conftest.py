@@ -1,5 +1,3 @@
-import asyncio
-from ...src.app.functionality.status import check_opensearch
 from ...src.app.functionality.opensearch import close_client
 from ...src.load_dotenv import load_env
 from ...src.app.app import create_app
@@ -24,10 +22,9 @@ file_path = os.path.join(os.path.dirname(__file__), "..", "assets", filename)
 
 @pytest_asyncio.fixture(loop_scope="session", autouse=True, scope="session")
 async def shabti_client():
+    # nothing to wait for here: compose only starts this once every service it depends on reports
+    # healthy
     load_env()
-    # ping reports a cluster it can't reach as not running rather than raising, so this just polls
-    while not await check_opensearch():
-        await asyncio.sleep(1)
     # entered as a context manager so every request shares one portal, and so the app's lifespan
     # runs: a portal per request would mean an event loop per request, and the OpenSearch client
     # is bound to the loop it was created on

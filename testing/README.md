@@ -90,14 +90,16 @@ the exit code and the pass-through filtering work. Because `compose run` starts 
 service's dependency graph, that graph has to be honest — `depends_on` is what decides which
 containers a filtered run brings up:
 
-- `shabti` depends on `opensearch-node1`, `llama-cpp` and `tika`, so anything that needs the live
-  API gets the whole stack. This is load-bearing: `docker_run.py` waits for llama.cpp's `/health`
-  before starting uvicorn, so a `shabti` started without llama.cpp never finishes booting and the
-  run sits on `Container shabti Waiting` until the healthcheck gives up.
-- `pytest-api` depends on those three directly and *not* on `shabti`, because it builds the app in
-  process with `TestClient(create_app())` rather than talking to the container.
+- `shabti` depends on `opensearch-node1`, `llama-cpp` and `tika` being healthy, so anything that
+  needs the live API gets the whole stack, and only once all of it is accepting requests. The
+  healthchecks come from the configurator's compose fragments.
+- `pytest-api` depends on those three being healthy directly and *not* on `shabti`, because it
+  builds the app in process with `TestClient(create_app())` rather than talking to the container.
 - `pytest-python-client` and `bun-tests` depend on `shabti` being healthy, and reach it over the
   network.
+- `enabled.yml` adds Keycloak being healthy to `shabti` and `pytest-api`.
+
+None of the suites wait for a service themselves; this is the only place that decides it is ready.
 
 ## The bun container
 

@@ -149,6 +149,27 @@ class ServiceStatus(BaseModel):
     running: bool
 
 
+class Service(StrEnum):
+    """A service the API needs something from, as named in a ServiceUnavailableError."""
+
+    OPENSEARCH = "opensearch"
+    LLM = "llm"
+    TIKA = "tika"
+    KEYCLOAK = "keycloak"
+
+    @property
+    def label(self) -> str:
+        return SERVICE_LABELS[self]
+
+
+SERVICE_LABELS = {
+    Service.OPENSEARCH: "OpenSearch",
+    Service.LLM: "LLM",
+    Service.TIKA: "Tika",
+    Service.KEYCLOAK: "Keycloak",
+}
+
+
 class PromptConfigInfo(BaseModel):
     prompt: Optional[str] = None
 

@@ -12,6 +12,7 @@ from .models import (
     ModelInfo as ModelInfo,
     PromptInfo as PromptInfo,
     ServiceStatus as ServiceStatus,
+    Service as Service,
     PromptConfigInfo as PromptConfigInfo,
     TaskInfo as TaskInfo,
     TempFileInfo as TempFileInfo,
@@ -39,4 +40,5 @@ from .exceptions import (
     ForbiddenUrlError as ForbiddenUrlError,
     CollectionNotFoundError as CollectionNotFoundError,
     IngestNotFoundError as IngestNotFoundError,
+    ServiceUnavailableError as ServiceUnavailableError,
 )

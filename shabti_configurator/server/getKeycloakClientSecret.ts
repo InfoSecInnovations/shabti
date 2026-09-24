@@ -1,9 +1,10 @@
 import KcAdminClient from "@keycloak/keycloak-admin-client";
 import { KeycloakUnavailableError } from "./errors";
 
-// Keycloak has no healthcheck and takes a while to come up, so we retry. Bounded, and with a wait
-// between attempts, so a wrong password surfaces as an error instead of spinning forever. 60 x 5s
-// matches the "this can take a few minutes" the install tells the user to expect
+// Keycloak takes a while to come up, and `up -d` doesn't wait for its healthcheck, so we retry.
+// Bounded, and with a wait between attempts, so a wrong password surfaces as an error instead of
+// spinning forever. 60 x 5s matches the "this can take a few minutes" the install tells the user
+// to expect
 const ATTEMPTS = 60;
 const DELAY_MS = 5000;
 

@@ -20,13 +20,14 @@ def collection_management_server(
     api_status: reactive.Value,
     opensearch_status: reactive.Value,
     llm_status: reactive.Value,
+    tika_status: reactive.Value,
 ):
     collection_create_server(
         "collection_create", client, selected_collection, collections
     )
     collection_selector_server("collection_select", selected_collection, collections)
     ingestion_done_trigger = ingester_server(
-        "ingester", client, selected_collection, collections, llm_status
+        "ingester", client, selected_collection, collections, llm_status, tika_status
     )
 
     @render.ui

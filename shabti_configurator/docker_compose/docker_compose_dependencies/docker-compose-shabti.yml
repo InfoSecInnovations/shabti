@@ -19,6 +19,15 @@ services:
       # the settings the installer recorded about the selected embeddings model. the directory
       # rather than the file so that rewriting it is visible to a running container
       - ./llama_models:/opt/shabti_models:ro
+    healthcheck:
+      test: ["CMD", "/app/shabti/.venv/bin/python", "healthcheck.py"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      # docker_run.py doesn't start the server until llama.cpp answers, which can take a long while
+      # on a cold start
+      start_period: 15m
+      start_interval: 2s
     restart: unless-stopped
   shabti-logging:
     extends: shabti
@@ -51,6 +60,13 @@ services:
       - API_PORT=${API_PORT:-15131}
     ports:
       - ${WEB_PORT:-15130}:15130
+    healthcheck:
+      test: ["CMD", "/app/shabti_web/.venv/bin/python", "healthcheck.py"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 2m
+      start_interval: 2s
     restart: unless-stopped
   shabti-web-enable-security:
     extends: shabti-web

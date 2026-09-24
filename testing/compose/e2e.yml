@@ -1,37 +1,24 @@
 # Layered over stack.yml + runners.yml for the two end-to-end test types. Everything here is about
 # wiring the one-shot runners to the live stack; nothing in it is needed by the unit tests.
+#
+# The healthchecks all come from the configurator fragments, and are what every runner waits on:
+# none of the suites poll for a service themselves.
 
 services:
-  shabti:
-    # Neither the images nor the configurator fragments carry a healthcheck, so the wait for the
-    # API used to be an unbounded `while (true) { try { await fetch(...) } catch { continue } }`
-    # loop in the test runner. docker_run.py only reaches uvicorn.run after its own wait on
-    # llama.cpp's /health returns, so the port answering means the whole service is ready.
-    healthcheck:
-      test:
-        - CMD
-        - /app/shabti/.venv/bin/python
-        - -c
-        - import socket; socket.create_connection(('localhost', 15131), 5).close()
-      interval: 10s
-      timeout: 10s
-      # llama.cpp can take a long while to come up on a cold start, so this is deliberately patient
-      retries: 90
-      start_period: 20s
-
   # Runs the app in process, so it needs the stack's backing services but not the API container.
   # Spelled out rather than inherited from shabti, which this deliberately does not depend on.
   pytest-api:
     depends_on:
       opensearch-node1:
-        condition: service_started
+        condition: service_healthy
       llama-cpp:
-        condition: service_started
+        condition: service_healthy
       tika:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - shabti-files:/opt/shabti_files
 
+  # shabti is only healthy once everything it depends on is, see stack.yml
   pytest-python-client:
     depends_on:
       shabti:

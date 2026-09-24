@@ -95,6 +95,10 @@ async def test_opensearch_status(shabti_client):
     assert await shabti_client.opensearch_status()
 
 
+async def test_tika_status(shabti_client):
+    assert await shabti_client.tika_status()
+
+
 async def test_api_status(shabti_client):
     assert await shabti_client.api_status()
 

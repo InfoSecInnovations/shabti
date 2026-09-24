@@ -365,6 +365,7 @@ export default async () => {
 		console.log(
 			`OpenSearch: ${(await client.opensearchStatus()) ? "online" : "offline"}`,
 		);
+		console.log(`Tika: ${(await client.tikaStatus()) ? "online" : "offline"}`);
 	});
 
 	return program;

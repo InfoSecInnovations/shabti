@@ -76,6 +76,7 @@ def ingester_server(
     selected_collection: reactive.Value,
     collections: reactive.Value[CollectionsData],
     llm_status: reactive.Value,
+    tika_status: reactive.Value,
 ):
     file_input_trigger = reactive.value(0)
     url_input_trigger = reactive.value(0)
@@ -111,6 +112,8 @@ def ingester_server(
     def ingester_content():
         if not llm_status.get():
             return ui.markdown("Waiting for LLM host to come online...")
+        if not tika_status.get():
+            return ui.markdown("Waiting for Tika to come online...")
         if not embedding_model_loaded.get():
             return ui.markdown("Loading embeddings model...")
         return ui.TagList(

@@ -13,5 +13,13 @@ services:
     # - maxWaitForClientMillis: how long a request waits for a free forked parser before a 429.
     #   Shabti's ingest pool already bounds how many parses it asks for at once
     command: ["--config", "/tika-config.json"]
+    # the image has wget but not curl
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9998/tika"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+      start_interval: 2s
     volumes:
       - ./tika_config/tika-config.json:/tika-config.json

@@ -7,7 +7,7 @@ from .routers import secure_routes
 import os
 from keycloak import KeycloakPostError, KeycloakAuthenticationError
 import json
-from shabti_types import ShabtiError, DocumentList
+from shabti_types import ShabtiError, DocumentList, Service
 import logging
 from fastapi import Depends
 from typing import Annotated
@@ -44,7 +44,7 @@ from .functionality.embeddings import (
     get_embeddings_model_id,
     get_vector_dimension,
 )
-from .functionality.status import check_llm, check_opensearch
+from .functionality.status import check_llm, check_opensearch, check_tika
 from .functionality.opensearch import close_client, sweep_ingesting_documents
 from .functionality.run_prompt import run_prompt
 from .functionality.load_prompter_config import load_prompter_config
@@ -68,6 +68,7 @@ from .dependencies.no_auth import NoAuth
 from .dependencies.prompt_info_validator import PromptInfoValidator
 from .dependencies.prompt_body_auth_checker import PromptBodyAuthChecker
 from .dependencies.url_list_validator import UrlListValidator
+from .dependencies.required_services import RequiredServices
 
 
 @asynccontextmanager
@@ -192,8 +193,13 @@ def create_app():
     def is_online():
         return Response("Shabti API is up and running!")
 
+    opensearch = Depends(RequiredServices(Service.OPENSEARCH))
+    llm = Depends(RequiredServices(Service.LLM))
+
     @app.get(
-        "/collections/{collection_id}/documents", response_model_exclude_unset=True
+        "/collections/{collection_id}/documents",
+        response_model_exclude_unset=True,
+        dependencies=[opensearch],
     )
     async def get_documents_route(
         collection_id: str,
@@ -215,7 +221,9 @@ def create_app():
         )
 
     @app.get(
-        "/collections/{collection_id}/document_types", response_model_exclude_unset=True
+        "/collections/{collection_id}/document_types",
+        response_model_exclude_unset=True,
+        dependencies=[opensearch],
     )
     async def get_document_types_route(
         collection_id: str, credentials: Annotated[str, Depends(access_token)]
@@ -226,7 +234,10 @@ def create_app():
         "/collections/{collection_id}/documents/files",
         response_model_exclude_unset=True,
         status_code=201,
-        dependencies=[Depends(auth_class("update"))],
+        dependencies=[
+            Depends(RequiredServices(Service.OPENSEARCH, Service.LLM, Service.TIKA)),
+            Depends(auth_class("update")),
+        ],
     )
     async def insert_files_document_route(
         collection_id: str,
@@ -260,7 +271,11 @@ def create_app():
         "/collections/{collection_id}/documents/urls",
         response_model_exclude_unset=True,
         status_code=201,
-        dependencies=[Depends(auth_class("update")), Depends(UrlListValidator())],
+        dependencies=[
+            Depends(RequiredServices(Service.OPENSEARCH, Service.LLM)),
+            Depends(auth_class("update")),
+            Depends(UrlListValidator()),
+        ],
     )
     async def insert_urls_document_route(
         collection_id: str,
@@ -302,6 +317,7 @@ def create_app():
     @app.delete(
         "/collections/{collection_id}/documents/{document_id}",
         response_model_exclude_unset=True,
+        dependencies=[opensearch],
     )
     async def delete_document_route(
         collection_id: str,
@@ -335,7 +351,7 @@ def create_app():
         enhancers = load_prompter_config("enhancers")
         return {key: PromptConfigInfo(**value) for key, value in enhancers.items()}
 
-    @app.post("/prompt/source_file", dependencies=[Depends(access_token)])
+    @app.post("/prompt/source_file", dependencies=[opensearch, Depends(access_token)])
     async def prompt_file_route(file: UploadFile) -> TempFileInfo:
         # TODO: should there be more restrictions on this route to avoid spamming the server with files?
         # TODO: maybe something like S3 upload where we pregenerate the URL or ID so a file can only be linked to a prompt?
@@ -345,7 +361,11 @@ def create_app():
 
     @app.post(
         "/prompt",
-        dependencies=[Depends(body_checker("read")), Depends(PromptInfoValidator())],
+        dependencies=[
+            Depends(RequiredServices(Service.OPENSEARCH, Service.LLM)),
+            Depends(body_checker("read")),
+            Depends(PromptInfoValidator()),
+        ],
     )
     async def prompt_route(
         prompt_info: PromptInfo, credentials: Annotated[str, Depends(access_token)]
@@ -354,15 +374,20 @@ def create_app():
             yield x
 
     @app.get("/status/llm")
-    def llm_status():
-        return ServiceStatus(running=check_llm())
+    async def llm_status():
+        return ServiceStatus(running=await check_llm())
 
     @app.get("/status/opensearch")
     async def opensearch_status():
         return ServiceStatus(running=await check_opensearch())
 
+    @app.get("/status/tika")
+    async def tika_status():
+        return ServiceStatus(running=await check_tika())
+
     @app.get(
-        "/files/{collection_id}/{doc_id}", dependencies=[Depends(auth_class("read"))]
+        "/files/{collection_id}/{doc_id}",
+        dependencies=[opensearch, Depends(auth_class("read"))],
     )
     async def get_files_route(
         collection_id: str,
@@ -371,13 +396,13 @@ def create_app():
     ):
         return await serve_binary(collection_id, doc_id)
 
-    @app.get("/models", dependencies=[Depends(access_token)])
+    @app.get("/models", dependencies=[llm, Depends(access_token)])
     async def get_models_route(tags: Annotated[list[str] | None, Query()] = None):
         return await get_models(tags)
 
     # the chat model a client should start on: the user's last choice when security is enabled,
     # otherwise whichever model is currently loaded
-    @app.get("/models/chat/selection")
+    @app.get("/models/chat/selection", dependencies=[llm])
     async def get_chat_model_selection_route(
         credentials: Annotated[str, Depends(access_token)],
     ) -> ModelInfo | None:
@@ -392,7 +417,7 @@ def create_app():
         await set_chat_model_selection(credentials, model_info.model_name)
         return model_info
 
-    @app.post("/models/pull", dependencies=[Depends(access_token)])
+    @app.post("/models/pull", dependencies=[llm, Depends(access_token)])
     async def load_model_route(model_info: ModelInfo) -> AsyncIterable[ModelLoadInfo]:
         # TODO: should this be locked behind higher permissions levels?
         async for x in load_model(model_info.model_name):

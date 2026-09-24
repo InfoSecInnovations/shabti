@@ -6,6 +6,7 @@ import argparse
 from glob import glob
 from multiprocessing import active_children, freeze_support
 import requests
+import time
 
 if __name__ == "__main__":
     freeze_support()
@@ -40,6 +41,7 @@ if __name__ == "__main__":
                 break
         except Exception:
             pass
+        time.sleep(1)
 
     try:
         uvicorn.run(

@@ -24,3 +24,13 @@ services:
     ports:
       - 9200:9200 # REST API
       - 9600:9600 # Performance Analyzer
+    # cluster health rather than just the port: the node listens well before it has elected itself
+    # cluster manager, and until then every index request fails. curl -f fails the 408 this answers
+    # with when the cluster isn't yellow within the timeout
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
+      start_interval: 2s

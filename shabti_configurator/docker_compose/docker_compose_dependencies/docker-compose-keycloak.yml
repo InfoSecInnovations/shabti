@@ -11,11 +11,19 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_DB_PASSWORD}
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "keycloak", "-d", "keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 1m
+      start_interval: 2s
   keycloak:
     container_name: keycloak
     image: quay.io/keycloak/keycloak:26.5.6
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
       - "8080:8080"
       - "8443:8443"
@@ -40,6 +48,22 @@ services:
       - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=${KEYCLOAK_BACKCHANNEL_DYNAMIC:-false}
       - SHABTI_HOST=${WEB_HOST:-localhost}
       - SHABTI_PORT=${WEB_PORT:-15130}
+      # the health endpoints, on the management port. plain http there so the healthcheck below can
+      # reach them without a TLS client, which the image doesn't have
+      - KC_HEALTH_ENABLED=true
+      - KC_HTTP_MANAGEMENT_SCHEME=http
+    # no curl or wget in the image, so the request is made by hand over bash's /dev/tcp
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
+      start_interval: 2s
     restart: unless-stopped
     volumes:
       - ./keycloak_import:/opt/keycloak/data/import

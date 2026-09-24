@@ -50,6 +50,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     api_status = reactive.value(False)
     opensearch_status = reactive.value(False)
     llm_status = reactive.value(False)
+    tika_status = reactive.value(False)
     selected_collection = reactive.value("")
     collections: reactive.Value[CollectionsData[AuthzCollectionInfo]] = reactive.value(
         CollectionsData(loading=True)
@@ -135,6 +136,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         user_info,
         permissions,
         llm_status,
+        tika_status,
     )
     prompter_server(
         "prompter",
@@ -151,7 +153,9 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @reactive.effect
     def update_status():
-        update_status_reactives(status, api_status, opensearch_status, llm_status)
+        update_status_reactives(
+            status, api_status, opensearch_status, llm_status, tika_status
+        )
 
     @reactive.extended_task
     async def fetch_collections():

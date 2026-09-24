@@ -1,5 +1,4 @@
 import pytest_asyncio
-import requests
 import os
 from shabti_keycloak import get_keycloak_client
 from shabti_api_client import ShabtiAuthorizationClient
@@ -16,12 +15,8 @@ prompt_file_path = os.path.join(
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def shabti_instance():
-    while True:
-        try:
-            requests.get("https://shabti:15131", verify=os.getenv("ROOT_CA"))
-            break
-        except Exception:
-            continue
+    # nothing to wait for here: compose only starts this once the API reports healthy, which it
+    # only starts once every service it depends on does
     yield
     client = await get_admin_client()
     for collection in await client.get_collections():

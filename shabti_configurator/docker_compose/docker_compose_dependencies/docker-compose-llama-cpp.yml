@@ -15,6 +15,14 @@ services:
     # its own command line arguments on top of every preset section, so a model which needs a larger
     # physical batch than the default could never override one set here
     command: ["--models-preset", "/my-models.ini", "--embeddings", "--port", "11434"]
+    # replaces the image's own, which probes the default port 8080 rather than the one above
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:11434/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15m
+      start_interval: 2s
   llama-cpp-cuda:
     extends: llama-cpp-cpu
     deploy:

@@ -14,8 +14,8 @@ export default async (attempts = 60, delayMs = 5000) => {
 		realmName: "shabti",
 	});
 	let lastError: unknown;
-	// Keycloak has no healthcheck and takes a while to come up, so we retry. Bounded so a
-	// permanently wrong secret surfaces as an error instead of hanging forever
+	// Keycloak takes a while to come up, and `up -d` doesn't wait for its healthcheck, so we
+	// retry. Bounded so a permanently wrong secret surfaces as an error instead of hanging forever
 	for (let attempt = 0; attempt < attempts; attempt++) {
 		try {
 			await client.auth({

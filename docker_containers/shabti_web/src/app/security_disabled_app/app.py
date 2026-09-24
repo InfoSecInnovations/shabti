@@ -30,6 +30,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     api_status = reactive.value(False)
     opensearch_status = reactive.value(False)
     llm_status = reactive.value(False)
+    tika_status = reactive.value(False)
     selected_collection = reactive.value("")
     collections: reactive.Value[CollectionsData[CollectionInfo]] = reactive.value(
         CollectionsData(loading=True)
@@ -58,11 +59,14 @@ def server(input: Inputs, output: Outputs, session: Session):
         api_status,
         opensearch_status,
         llm_status,
+        tika_status,
     )
 
     @reactive.effect
     def update_status():
-        update_status_reactives(status, api_status, opensearch_status, llm_status)
+        update_status_reactives(
+            status, api_status, opensearch_status, llm_status, tika_status
+        )
 
     @reactive.extended_task
     async def fetch_collections():
