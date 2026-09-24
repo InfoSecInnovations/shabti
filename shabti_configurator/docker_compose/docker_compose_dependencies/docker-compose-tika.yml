@@ -1,10 +1,17 @@
 services: 
   tika:
     container_name: tika
-    image: apache/tika:3.3.0.0-full
+    image: apache/tika:4.0.0-1-full
     ports:
       - "9998:9998"
     restart: unless-stopped
-    command: ["--config", "/tika-config.xml"]
+    # tika-config.json can't carry comments, so what it sets and why:
+    # - server: nothing to set, but 4.0.0 refuses to start from a config file without it
+    # - pdf-parser: OCR is off for PDFs as it can be very slow. images on their own still get it
+    # - default-parser: keeps every other parser, as a parsers list otherwise loads only what it names
+    # - totalTaskTimeoutMillis: maximum time to allow per parse before the forked parser is killed
+    # - maxWaitForClientMillis: how long a request waits for a free forked parser before a 429.
+    #   Shabti's ingest pool already bounds how many parses it asks for at once
+    command: ["--config", "/tika-config.json"]
     volumes:
-      - ./tika_config/tika-config.xml:/tika-config.xml
+      - ./tika_config/tika-config.json:/tika-config.json

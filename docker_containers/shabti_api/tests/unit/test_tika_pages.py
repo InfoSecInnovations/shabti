@@ -1,10 +1,9 @@
 import io
 
 from bs4 import BeautifulSoup
-from ...src.app.functionality.loaders import tika_loader
+from ...src.app.functionality.loaders import tika_client
 from ...src.app.functionality.loaders.tika_loader import (
     TikaFileLoader,
-    container_value,
     extract_pages,
     get_languages,
 )
@@ -80,44 +79,39 @@ def test_language_is_read_out_of_the_metadata():
     assert get_languages({"Content-Type": "application/pdf"}) == []
 
 
-def test_language_lists_from_embedded_resources_are_flattened_and_deduplicated():
-    # merging appends an entry per embedded resource, each usually repeating its container's
-    # language and each possibly a list of its own, so `list[str]` needs both steps
-    assert get_languages({"dc:language": ["en-GB", "en-GB"]}) == ["en-GB"]
-    assert get_languages({"dc:language": [["en-GB", "fr"], "en-GB"]}) == ["en-GB", "fr"]
+def test_a_language_declared_twice_is_listed_once():
+    assert get_languages({"dc:language": ["en-GB", "fr", "en-GB"]}) == ["en-GB", "fr"]
 
 
-def test_the_container_value_is_the_first_of_a_merged_list():
-    merged = ["application/zip", "text/plain", "text/markdown"]
-    assert (
-        container_value({"Content-Type": merged}, "Content-Type") == "application/zip"
-    )
-    assert (
-        container_value({"Content-Type": "text/plain"}, "Content-Type") == "text/plain"
-    )
-    assert container_value({}, "Content-Type") is None
+BODY = "<html><body><p>Body.</p></body></html>"
 
 
-def loaded(monkeypatch, metadata, content="<html><body><p>Body.</p></body></html>"):
-    """The stream `TikaFileLoader` builds from a given Tika response, with no Tika involved."""
+def loaded(monkeypatch, *entries):
+    """The stream `TikaFileLoader` builds from a given `/rmeta` response, with no Tika involved."""
     monkeypatch.setattr(
-        tika_loader.parser,
-        "from_buffer",
-        lambda *_, **__: {"metadata": metadata, "content": content},
+        tika_client, "recursive_metadata", lambda *_, **__: list(entries)
     )
     return TikaFileLoader.load(io.BytesIO(b"anything"), "test_docs.zip")
 
 
-def test_the_container_content_type_survives_embedded_resources(monkeypatch):
-    # tika-python promotes any key more than one rmeta entry carries to a list, and a zip has an
-    # entry per member, so this used to reach `DocumentIngestInfo.document_type` as a list and fail
-    # validation there - reported to the client as "could not be loaded"
+def test_the_container_content_type_is_the_media_type(monkeypatch):
+    # a zip has an entry per member, each with a type of its own, and the document is the zip
     stream = loaded(
         monkeypatch,
-        {"Content-Type": ["application/zip", "text/plain", "text/markdown"]},
+        {"Content-Type": "application/zip", "tk:content": BODY},
+        {"Content-Type": "text/plain", "tk:content": BODY},
+        {"Content-Type": "text/markdown", "tk:content": BODY},
     )
     assert stream.metadata.media_type == "application/zip"
-    assert isinstance(stream.metadata.media_type, str)
+
+
+def test_languages_come_from_the_container_only(monkeypatch):
+    stream = loaded(
+        monkeypatch,
+        {"Content-Type": "application/zip", "dc:language": "en-GB"},
+        {"Content-Type": "text/plain", "dc:language": "fr"},
+    )
+    assert stream.metadata.languages == ["en-GB"]
 
 
 def test_a_file_with_no_content_type_still_has_a_media_type(monkeypatch):
@@ -125,10 +119,27 @@ def test_a_file_with_no_content_type_still_has_a_media_type(monkeypatch):
     assert loaded(monkeypatch, {}).metadata.media_type == "application/octet-stream"
 
 
+def test_an_empty_response_still_has_a_media_type(monkeypatch):
+    assert loaded(monkeypatch).metadata.media_type == "application/octet-stream"
+
+
+async def test_the_content_is_the_containers_own(monkeypatch):
+    # tika-python appended every entry's XHTML after the container's, and the parse stopped at the
+    # container's `</html>`, so this is what was ingested all along
+    stream = loaded(
+        monkeypatch,
+        {"tk:content": "<html><body><p>The container.</p></body></html>"},
+        {"tk:content": "<html><body><p>An embedded image.</p></body></html>"},
+    )
+    text = "".join([page.content async for page in stream.pages])
+    assert "The container." in text
+    assert "An embedded image." not in text
+
+
 async def test_a_file_tika_extracted_no_text_from_loads_as_an_empty_document(
     monkeypatch,
 ):
-    # tika-python leaves `content` as None when there was no text at all. That was a TypeError in
-    # the parse, so an image with OCR off read as unloadable rather than as empty
-    stream = loaded(monkeypatch, {"Content-Type": "image/png"}, content=None)
+    # an entry with no text at all has no `tk:content`. That used to be a TypeError in the parse,
+    # so an image with OCR off read as unloadable rather than as empty
+    stream = loaded(monkeypatch, {"Content-Type": "image/png"})
     assert [page async for page in stream.pages] == []

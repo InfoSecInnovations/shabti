@@ -28,7 +28,6 @@ services:
       - SHABTI_SECURITY_ENABLED=False
       - SHABTI_LOGGING_ENABLED=False
       - SHABTI_FILES_DIR=/opt/shabti_files
-      - TIKA_CLIENT_ONLY=True
       - TIKA_SERVER_ENDPOINT=http://tika:9998
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - KEYCLOAK_HOST=keycloak

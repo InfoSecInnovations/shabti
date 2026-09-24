@@ -1,0 +1,15 @@
+{
+	"server": {},
+	"parsers": [
+		{ "pdf-parser": { "ocr": { "strategy": "NO_OCR" } } },
+		{ "default-parser": {} }
+	],
+	"parse-context": {
+		"timeout-limits": {
+			"totalTaskTimeoutMillis": 999999999
+		}
+	},
+	"pipes": {
+		"maxWaitForClientMillis": 999999999
+	}
+}

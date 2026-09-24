@@ -4,7 +4,7 @@ from .base_loader import (
     get_current_time,
     page_list_stream,
 )
-from tika import parser
+from . import tika_client
 from lxml import etree
 
 
@@ -57,55 +57,28 @@ def extract_pages(xhtml: str) -> list[ShabtiDocument.ShabtiPage]:
     ]
 
 
-def container_value(metadata, key: str):
-    """One metadata value as the container itself reported it.
-
-    `/rmeta/xml` answers with an entry per embedded resource as well as one for the container, and
-    tika-python merges them into a single dict, promoting every key more than one entry carries to a
-    list. So a zip's - or a docx-with-an-image's - `Content-Type` arrives as
-    `["application/zip", "text/plain", ...]` rather than the string the rest of the stack is typed
-    for, which used to reach `DocumentIngestInfo.document_type` and fail validation there. The
-    container is the first entry, so its own value is the first element.
-    """
-    value = metadata.get(key)
-    return value[0] if isinstance(value, list) else value
-
-
 def get_languages(metadata) -> list[str]:
-    """Every language the container declares, without what the merge above adds.
+    """Every language the container declares.
 
     Tika reports this as a bare string for most formats and a list where a document declares more
-    than one, and merging appends one entry per embedded resource - each usually repeating its
-    container's language, and each possibly a list of its own, so the result can be nested.
-    Flattened and deduplicated rather than truncated to the first: a genuinely multilingual document
-    and a merged one are indistinguishable by this point, and dropping duplicates is right for both.
+    than one. Deduplicated because a document can declare the same one twice.
     """
     language = metadata.get("dc:language")
     if not language:
         return []
     values = language if isinstance(language, list) else [language]
-    flattened = [
-        item
-        for value in values
-        for item in (value if isinstance(value, list) else [value])
-        if item
-    ]
-    # `dict.fromkeys` rather than a set: the container's own language should stay first
-    return list(dict.fromkeys(flattened))
+    # `dict.fromkeys` rather than a set: the first declared language should stay first
+    return list(dict.fromkeys(value for value in values if value))
 
 
 class TikaFileLoader:
     @staticmethod
     def load(file, filename: str | None) -> ShabtiPageStream:
         date_time = get_current_time()
-        parsed = parser.from_buffer(
-            file.read(),
-            xmlContent=True,
-            requestOptions={"timeout": None},
-            headers={
-                "X-Tika-PDFOcrStrategy": "no_ocr"
-            },  # at the moment we're not using OCR at all as it can be very slow
-        )
+        # an entry per embedded resource as well as one for the container, which comes first.
+        # PDF OCR is turned off in the server's config, as it can be very slow
+        entries = tika_client.recursive_metadata(file.read())
+        container = entries[0] if entries else {}
         return page_list_stream(
             ShabtiDocument.DocumentMetadata(
                 source=filename,
@@ -113,12 +86,13 @@ class TikaFileLoader:
                 ingest_date=date_time,
                 # never None: `DocumentIngestInfo.document_type` is a required str, and Tika
                 # omits the header for a format it could not identify at all
-                media_type=container_value(parsed["metadata"], "Content-Type")
-                or "application/octet-stream",
-                languages=get_languages(parsed["metadata"]),
+                media_type=container.get("Content-Type") or "application/octet-stream",
+                languages=get_languages(container),
             ),
-            # tika-python leaves this None when Tika extracted no text at all, which used to
-            # be a TypeError in the parse and so a load failure. Empty is the truth: the
-            # caller reports an empty document rather than one that could not be read
-            extract_pages(parsed["content"] or ""),
+            # the container's own text only. each embedded resource's is a whole XHTML document
+            # of its own, and appending them after the container's `</html>` - which is what
+            # tika-python did - only ever looked like it kept them: the parse stops there. no
+            # `tk:content` at all means no text, which is an empty document rather than an
+            # unreadable one, and the caller reports it as such
+            extract_pages(container.get("tk:content") or ""),
         )

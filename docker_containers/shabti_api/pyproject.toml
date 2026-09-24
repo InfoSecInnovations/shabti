@@ -13,7 +13,6 @@ dependencies = [
     "aiofiles==25.1.0",
     "requests==2.34.2",
     "semantic-text-splitter==0.32.0",
-    "tika==3.1.0",
     "trafilatura==2.2.0",
     "httpx-sse==0.4.3",
     "isi-util",
