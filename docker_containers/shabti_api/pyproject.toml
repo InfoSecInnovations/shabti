@@ -8,6 +8,7 @@ dependencies = [
     "crawlee[beautifulsoup]==1.9.3",
     "fastapi[standard]==0.141.1",
     "lxml==6.1.2",
+    "numpy==2.5.3",
     "opensearch-py[async]==3.0.0",
     "python-json-logger==4.2.0",
     "aiofiles==25.1.0",

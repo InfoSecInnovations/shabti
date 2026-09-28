@@ -41,7 +41,7 @@ def get_field_type(python_type):
 CHUNK_OVERLAP = 50
 
 
-def get_splitter(model_id: str) -> TextSplitter:
+def get_splitter(model_id: str, prefix: str, setting: str) -> TextSplitter:
     """A splitter that measures text with the embeddings model's own tokenizer.
 
     The count comes from llama.cpp rather than from a tokenizer downloaded here, which is what lets
@@ -52,12 +52,14 @@ def get_splitter(model_id: str) -> TextSplitter:
     document being split and the connection underneath is held open. Built per document rather than
     cached, so the memo is dropped with it instead of growing for the life of the process.
 
-    A model that wants a prefix on the text it stores has that prefix's tokens taken out of the
+    A model that wants a prefix on the text it embeds has that prefix's tokens taken out of the
     budget here, so that a chunk plus its prefix is still the chunk size everything else is sized
-    from - the physical batch the installer picks for the model is derived from that number.
+    from - the physical batch the installer picks for the model is derived from that number. The
+    prefix is given rather than looked up because a question being split has the query prefix in
+    front of it instead of the document one, and `setting` is which of the two it came from, so a
+    prefix too long to leave room for any text is blamed on the right one.
     """
     configured = chunk_size(model_id)
-    prefix = document_prefix(model_id)
     # `count_tokens` adds the model's special tokens to whatever it measures, so measuring the
     # prefix on its own counts one or two of them that the combined text will only carry once. that
     # reserves a token or two more than strictly needed, which is the direction to be wrong in
@@ -67,7 +69,7 @@ def get_splitter(model_id: str) -> TextSplitter:
         raise EmbeddingsConfigError(
             model=model_id,
             message=(
-                f"document_prefix for {model_id} is {prefix_size} tokens, which leaves nothing of "
+                f"{setting} for {model_id} is {prefix_size} tokens, which leaves nothing of "
                 f"the {configured} token chunk_size for the text itself."
             ),
         )
@@ -117,10 +119,10 @@ async def insert(
     # change while one document is being ingested
     model_id = await asyncio.to_thread(get_embeddings_model_id)
     await check_embeddings_model(collection_id, model_id)
-    splitter = get_splitter(model_id)
     # what this model wants in front of a stored chunk, which is model input only: the chunk is
     # stored and hashed as it was written. empty for every model in the catalogue today
     prefix = document_prefix(model_id)
+    splitter = get_splitter(model_id, prefix, "document_prefix")
 
     label = stream.metadata.filename or stream.metadata.source
     # fed page by page as they stream, so identifying the document costs one hasher rather than a

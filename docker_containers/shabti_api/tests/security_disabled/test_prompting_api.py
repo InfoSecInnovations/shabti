@@ -2,6 +2,7 @@ from ...src.app.functionality.ingesting import insert_document
 import os
 from ...src.app.functionality.loading import load_file
 from ...src.app.functionality.models import get_models, load_model, unload_models
+from ...src.app.functionality.opensearch_prompting import get_context_from_opensearch
 from uuid import uuid4
 
 filename = "prompt_test.md"
@@ -81,3 +82,14 @@ async def test_prompt_with_an_unknown_persona(
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Requested persona not found"
+
+
+async def test_a_question_longer_than_the_embeddings_model_takes_still_searches(
+    shabti_client, shabti_collection_id
+):
+    # thousands of tokens against a model whose physical batch is a few hundred: llama.cpp refuses
+    # that as one input, which used to break the answer's stream part way through. searched
+    # directly rather than through /prompt so the chat model isn't made to read all of it too
+    question = " ".join(["What does the word prompting mean?"] * 400)
+    context = await get_context_from_opensearch(shabti_collection_id, 5, question)
+    assert "sources" in context

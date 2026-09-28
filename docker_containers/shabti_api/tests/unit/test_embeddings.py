@@ -5,6 +5,8 @@ asserts on what would have gone over the wire. The live server is covered by the
 `security_disabled`; this file is about the branches that a working server never reaches.
 """
 
+import math
+
 import pytest
 import requests
 from shabti_types import (
@@ -21,6 +23,7 @@ from ...src.app.functionality.embeddings import (
     get_embeddings_model_id,
     get_json,
     get_vector_dimension,
+    mean_vector,
 )
 
 LLM_HOST = "llm-host-under-test"
@@ -348,3 +351,36 @@ def test_the_model_is_named_even_when_the_caller_did_not(calls):
 def test_a_good_vector_is_returned_unchanged(calls):
     calls.post_response = FakeResponse(vectors([0.1, -0.2, 0.0]))
     assert create_embeddings("some text", "embed-1") == [0.1, -0.2, 0.0]
+
+
+def test_the_mean_of_vectors_is_their_average_direction():
+    assert mean_vector([[1.0, 0.0], [0.0, 1.0]], [1, 1]) == pytest.approx(
+        [math.sqrt(0.5), math.sqrt(0.5)]
+    )
+
+
+def test_a_longer_vector_does_not_count_for_more():
+    # the vectors are compared by angle, so one that happens to be longer says nothing more and
+    # must not pull the average towards itself
+    assert mean_vector([[10.0, 0.0], [0.0, 1.0]], [1, 1]) == pytest.approx(
+        [math.sqrt(0.5), math.sqrt(0.5)]
+    )
+
+
+def test_a_heavier_piece_pulls_the_mean_towards_it():
+    x, y = mean_vector([[1.0, 0.0], [0.0, 1.0]], [3, 1])
+    assert x > y > 0
+
+
+def test_the_mean_is_unit_length_like_any_other_embedding():
+    vector = mean_vector(
+        [[0.3, -0.4, 1.2], [0.5, 0.1, -0.2], [2.0, 2.0, 2.0]], [5, 2, 1]
+    )
+    assert math.isclose(math.hypot(*vector), 1.0)
+
+
+def test_the_mean_is_a_plain_list_of_floats():
+    # it goes into an OpenSearch request body, which can't serialise numpy's types
+    vector = mean_vector([[1.0, 0.0], [0.0, 1.0]], [1, 1])
+    assert isinstance(vector, list)
+    assert all(isinstance(value, float) for value in vector)

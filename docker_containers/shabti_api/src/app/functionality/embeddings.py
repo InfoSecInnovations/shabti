@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import requests
 import threading
 from contextlib import suppress
@@ -151,6 +152,22 @@ def checked(vector, model_id: str):
             "cannot be computed as quantised - try a different quantisation of it."
         ),
     )
+
+
+def mean_vector(vectors: list[list[float]], weights: list[float]) -> list[float]:
+    """One vector standing for several, as their weighted average direction.
+
+    Each is normalised first so that it counts by its weight rather than by its length, and the
+    result is normalised again so it looks like any other embedding. A mean rather than an
+    element-wise max: a feature in an embedding is a direction rather than one coordinate, and
+    taking each coordinate's largest value throws away every negative one and drags the result
+    towards a direction everything shares, which measurably retrieves worse.
+    """
+    matrix = np.asarray(vectors, dtype=float)
+    unit = matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
+    mean = np.average(unit, axis=0, weights=weights)
+    # a plain list, because it goes into a JSON request body
+    return (mean / np.linalg.norm(mean)).tolist()
 
 
 def create_embeddings(text, model_id: str | None = None):

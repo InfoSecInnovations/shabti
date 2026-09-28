@@ -1,7 +1,13 @@
 import asyncio
-from .embeddings import create_embeddings, get_embeddings_model_id
-from .embeddings_config import query_prefix
+from .embeddings import (
+    count_tokens,
+    create_embeddings,
+    get_embeddings_model_id,
+    mean_vector,
+)
+from .embeddings_config import chunk_size, query_prefix
 from .opensearch import get_client, get_document_counts, get_ingesting_document_ids
+from .opensearch_ingesting import get_splitter
 
 # the similarity floor a chunk has to clear to be a reference at all. this is quite a magic number,
 # tweak as needed!
@@ -19,16 +25,35 @@ async def get_context_from_opensearch(
         The model is looked up here rather than left to `create_embeddings` to find, which it would
         have done anyway: an asymmetric model wants an instruction in front of a query, and what
         that instruction is can only be known once we know which model is answering.
+
+        A question has no length limit, but the model does: its whole input has to fit one physical
+        batch, and it was never trained on more than its context. One longer than a chunk is split
+        the way a document is and stands for the average of its pieces, rather than being cut short
+        or refused. `chunk_size` is the budget because the installer sizes the model's batch from
+        it, so a piece that fits it fits whatever that batch turned out to be.
         """
         model_id = get_embeddings_model_id()
         # blank input is left alone: `create_embeddings` returns nothing for it, and prefixing it
         # would turn "nothing to search for" into a search for the instruction itself
-        text = (
-            f"{query_prefix(model_id)}{user_input}"
-            if user_input.strip()
-            else user_input
-        )
-        return create_embeddings(text, model_id)
+        if not user_input.strip():
+            return create_embeddings(user_input, model_id)
+        prefix = query_prefix(model_id)
+        text = f"{prefix}{user_input}"
+        if count_tokens(text, model_id) <= chunk_size(model_id):
+            return create_embeddings(text, model_id)
+        pieces = [
+            piece
+            for piece in get_splitter(model_id, prefix, "query_prefix").chunks(
+                user_input
+            )
+            if piece.strip()
+        ]
+        # one call for every piece, each asked the way the model expects a query to be
+        vectors = create_embeddings([f"{prefix}{piece}" for piece in pieces], model_id)
+        # weighted by length so that the short remainder the splitter leaves at the end counts for
+        # what it is. characters rather than tokens, which would cost a round trip per piece to be
+        # only slightly more right
+        return mean_vector(vectors, [len(piece) for piece in pieces])
 
     # the embeddings server is reached with blocking requests, so it goes in a thread, and the
     # documents to keep out of the answer are read while it is in there rather than after it
