@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.0 - TBD
+
+### Changes
+
+- Chat and embeddings models can be selected from a list of available models at install time
+- Multiple chat models can be installed, in which case the model can be switched in the web app and API
+- Document ingestion runs in parallel and has performance and UI improvements
+- Web crawler switched to Crawlee due to the langchain community package being deprecated
+- Duplicate documents are rejected and duplicate vectors are excluded when querying
+- Configurator has been split into a panel to manage existing installs and a panel to install
+- Better progress reporting during the install process
+- Better support for running the configurator offline
+- Apache Tika dependency upgraded to version 4
+- Shiny for Python dependency upgraded to 1.7, this has enabled us to overcome some blockers caused by the previous Shiny version
+
+### Fixes
+
+- Zip file extraction issues
+- Document filtering
+- Prompting failure with logging enabled
+- Better error reporting during configurator operations (sometimes it would report a successful install in spite of an error)
+- Various stability issues
+- Improved handling for queries which overflow the embeddings route's token limit
+
 ## 0.8.0 - 2026-07-28
 
 Due to having several tasks ongoing simultaneously we've been unable to release the previous versions, but you can finally get your hands on a greatly upgraded version of Shabti (previously known as Concierge)! See also 0.7.0 changes below for the full list since the last official release.
