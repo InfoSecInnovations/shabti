@@ -15,8 +15,8 @@ export interface ShabtiRelease {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
-// GitHub only allows 60 unauthenticated requests an hour and every release is a request of its
-// own, so a successful listing is reused across page renders
+// GitHub only allows 60 unauthenticated API requests an hour, so a successful listing is reused
+// across page renders
 const ONLINE_CACHE_MS = 10 * 60_000;
 // a failure is retried sooner, so reconnecting shows up without restarting the configurator
 const OFFLINE_CACHE_MS = 30_000;
@@ -69,7 +69,13 @@ const compatible = (releases: ShabtiRelease[]) =>
 
 const fetchReleases = async () => {
 	const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-	const octokit = new Octokit({ request: { signal } });
+	// the bundled plugins wait out a rate limit or back off from server errors for longer than the
+	// timeout, which would hide the actual error behind the abort
+	const octokit = new Octokit({
+		request: { signal },
+		throttle: { enabled: false },
+		retry: { enabled: false },
+	});
 	const releases = await octokit.paginate(octokit.rest.repos.listReleases, {
 		owner: "InfoSecInnovations",
 		repo: "shabti",
@@ -83,13 +89,11 @@ const fetchReleases = async () => {
 	);
 	return await Promise.all(
 		componentsAssets.map(async (asset) => {
-			const res = await fetch(asset.url, {
-				headers: { Accept: "application/octet-stream" },
-				signal,
-			});
+			// unlike the API's asset url, the download url doesn't count towards the rate limit
+			const res = await fetch(asset.browser_download_url, { signal });
 			if (!res.ok)
 				throw new Error(
-					`fetching ${asset.url} failed with status ${res.status}`,
+					`fetching ${asset.browser_download_url} failed with status ${res.status}`,
 				);
 			return (await res.json()) as ShabtiRelease;
 		}),

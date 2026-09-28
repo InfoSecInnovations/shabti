@@ -50,7 +50,10 @@ beforeEach(async () => {
 				if (github.fails) throw new TypeError("fetch failed");
 				return RELEASES.map((_, i) => ({
 					assets: [
-						{ name: "shabti-components.json", url: `https://assets/${i}` },
+						{
+							name: "shabti-components.json",
+							browser_download_url: `https://assets/${i}`,
+						},
 					],
 				}));
 			},
