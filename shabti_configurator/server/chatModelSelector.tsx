@@ -2,30 +2,24 @@ import getDefaultModelSelection from "../getDefaultModelSelection";
 import getAvailableModels from "./getAvailableModels";
 import readModelsIni from "./readModelsIni";
 
-// which models to preselect when there's no my-models.ini to read
-export enum ModelSelectionFallback {
-	AllChatModels = "all-chat-models",
-	DefaultModelOnly = "default-model-only",
-}
+const collator = new Intl.Collator("en");
 
-// resolves the models which are currently configured, falling back to the bundled catalogue
-// when Shabti hasn't been installed yet. Only the models which can be used right now are
+// resolves the models which are currently configured, falling back to the catalogue's default
+// model when Shabti hasn't been installed yet. Only the models which can be used right now are
 // offered, which offline means the downloaded ones
-export const resolveModelSelection = async (options: {
-	fallback: ModelSelectionFallback;
-}) => {
+export const resolveModelSelection = async () => {
 	const { models: shabtiModels, connectivity } = await getAvailableModels();
 	const configured = await readModelsIni();
 	const defaults = await getDefaultModelSelection();
-	const selection =
-		configured ||
-		(options.fallback == ModelSelectionFallback.DefaultModelOnly
-			? { ...defaults, chatModels: [defaults.defaultModel] }
-			: defaults);
+	const selection = configured || {
+		...defaults,
+		chatModels: [defaults.defaultModel],
+	};
 	const modelsTagged = (tag: string) =>
 		Object.entries(shabtiModels)
 			.filter(([_, v]) => v.tags.includes(tag))
-			.map(([k]) => k);
+			.map(([k]) => k)
+			.sort(collator.compare);
 	const chatModels = modelsTagged("chat");
 	const embeddingsModels = modelsTagged("embeddings");
 	// filter the catalogue rather than the selection so the option order stays stable

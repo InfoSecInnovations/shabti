@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-	ModelSelectionFallback,
-	resolveModelSelection,
-} from "../server/chatModelSelector";
+import { resolveModelSelection } from "../server/chatModelSelector";
 import { resetConnectivity } from "../server/connectivity";
 import { resetDownloadedModels } from "../server/listDownloadedModels";
 import {
@@ -30,8 +27,7 @@ afterEach(async () => {
 	await cwd.leave();
 });
 
-const resolve = () =>
-	resolveModelSelection({ fallback: ModelSelectionFallback.DefaultModelOnly });
+const resolve = () => resolveModelSelection();
 
 describe("resolveModelSelection", () => {
 	test("offers the whole catalogue when online", async () => {
@@ -44,6 +40,18 @@ describe("resolveModelSelection", () => {
 			"snowflake-arctic",
 		]);
 		expect(resolved.selectedChatModels).toEqual(["mistral7b"]);
+	});
+
+	test("lists the models alphabetically", async () => {
+		mockFetch(reachableHosts("https://huggingface.co"));
+		const resolved = await resolve();
+		const collator = new Intl.Collator("en");
+		expect(resolved.chatModels).toEqual(
+			[...resolved.chatModels].sort(collator.compare),
+		);
+		expect(resolved.embeddingsModels).toEqual(
+			[...resolved.embeddingsModels].sort(collator.compare),
+		);
 	});
 
 	test("offers only the downloaded models when offline", async () => {

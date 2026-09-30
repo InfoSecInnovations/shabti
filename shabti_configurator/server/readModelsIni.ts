@@ -21,9 +21,15 @@ export default async (
 	const tags = Object.entries(sections).reduce(
 		(acc, [key, value]) => {
 			// writeModelsIni looks every model up in the catalogue, so anything which isn't in
-			// there can't be fed back into it
-			if (!shabtiModels[key]) return acc;
-			acc[key] = String(value?.tags || "")
+			// there can't be fed back into it. a section renamed in the catalogue still carries
+			// the same hf, so matching on that keeps an existing install's selection
+			const model = shabtiModels[key]
+				? key
+				: Object.keys(shabtiModels).find(
+						(k) => value?.hf && shabtiModels[k].hf == value.hf,
+					);
+			if (!model) return acc;
+			acc[model] = String(value?.tags || "")
 				.split(",")
 				.map((tag) => tag.trim());
 			return acc;

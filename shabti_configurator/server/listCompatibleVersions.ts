@@ -68,11 +68,10 @@ const compatible = (releases: ShabtiRelease[]) =>
 		});
 
 const fetchReleases = async () => {
-	const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
 	// the bundled plugins wait out a rate limit or back off from server errors for longer than the
 	// timeout, which would hide the actual error behind the abort
 	const octokit = new Octokit({
-		request: { signal },
+		request: { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
 		throttle: { enabled: false },
 		retry: { enabled: false },
 	});
@@ -89,8 +88,12 @@ const fetchReleases = async () => {
 	);
 	return await Promise.all(
 		componentsAssets.map(async (asset) => {
-			// unlike the API's asset url, the download url doesn't count towards the rate limit
-			const res = await fetch(asset.browser_download_url, { signal });
+			// unlike the API's asset url, the download url doesn't count towards the rate limit. it
+			// redirects to another host that pays for DNS and TLS again, so each download gets its own
+			// deadline rather than sharing the listing's, which a slow connection would run past
+			const res = await fetch(asset.browser_download_url, {
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+			});
 			if (!res.ok)
 				throw new Error(
 					`fetching ${asset.browser_download_url} failed with status ${res.status}`,

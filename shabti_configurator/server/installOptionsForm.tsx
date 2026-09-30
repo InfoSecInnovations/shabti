@@ -5,11 +5,7 @@ import { VersionSelector } from "./versionSelector";
 import currentIsLocal from "./currentIsLocal";
 import listCompatibleVersions from "./listCompatibleVersions";
 import { ConnectivityNotice } from "./connectivityNotice";
-import {
-	ChatModelSelector,
-	ModelSelectionFallback,
-	resolveModelSelection,
-} from "./chatModelSelector";
+import { ChatModelSelector, resolveModelSelection } from "./chatModelSelector";
 
 export const InstallOptionsForm = async (props: {
 	devMode: boolean;
@@ -25,9 +21,7 @@ export const InstallOptionsForm = async (props: {
 		chatModels,
 		embeddingsModels,
 		selectedChatModels,
-	} = await resolveModelSelection({
-		fallback: ModelSelectionFallback.DefaultModelOnly,
-	});
+	} = await resolveModelSelection();
 	const versions = await listCompatibleVersions();
 	if (
 		(!versions.length && !props.devMode) ||

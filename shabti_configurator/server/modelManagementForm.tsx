@@ -1,15 +1,9 @@
-import {
-	ChatModelSelector,
-	ModelSelectionFallback,
-	resolveModelSelection,
-} from "./chatModelSelector";
+import { ChatModelSelector, resolveModelSelection } from "./chatModelSelector";
 import { ConnectivityNotice } from "./connectivityNotice";
 
 export const ModelManagementForm = async () => {
 	const { connectivity, selection, chatModels, selectedChatModels } =
-		await resolveModelSelection({
-			fallback: ModelSelectionFallback.AllChatModels,
-		});
+		await resolveModelSelection();
 	return (
 		<form action="/manage-models" method="post">
 			<fieldset>

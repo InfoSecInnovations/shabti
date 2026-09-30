@@ -3,9 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import getDefaultModelSelection from "../getDefaultModelSelection";
+import getModelsConfig from "../getModelsConfig";
 import readModelsIni from "../server/readModelsIni";
 import writeModelsIni, {
 	buildModelsConfig,
+	getModelsIniPath,
 	getShabtiModelsPath,
 } from "../server/writeModelsIni";
 
@@ -239,6 +241,32 @@ describe("the files", () => {
 		expect(await readModelsIni(baseDir)).toEqual(
 			await getDefaultModelSelection(),
 		);
+	});
+
+	test("read back under the catalogue's names after a section is renamed", async () => {
+		const baseDir = await mkdtemp(path.join(tmpdir(), "shabti-models-"));
+		dirs.push(baseDir);
+		const models = await getModelsConfig();
+		const { defaultModel, embeddingsModel } = await getDefaultModelSelection();
+		// an install made before the catalogue's sections were renamed, which still has the
+		// same hf for each model
+		await Bun.write(
+			getModelsIniPath(baseDir),
+			`[old-chat]
+hf = ${models[defaultModel].hf}
+tags = chat, default
+
+` +
+				`[old-embeddings]
+hf = ${models[embeddingsModel].hf}
+tags = embeddings
+`,
+		);
+		expect(await readModelsIni(baseDir)).toEqual({
+			chatModels: [defaultModel],
+			embeddingsModel,
+			defaultModel,
+		});
 	});
 
 	test("sit next to each other", async () => {

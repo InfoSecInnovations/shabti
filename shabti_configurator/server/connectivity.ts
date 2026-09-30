@@ -1,6 +1,7 @@
 export type Connectivity = "online" | "huggingface-unreachable" | "offline";
 
-const TIMEOUT_MS = 3000;
+// a slow connection can spend several seconds on DNS and TLS alone, which isn't being offline
+const TIMEOUT_MS = 10_000;
 // long enough that one page render only pays for the check once
 const CACHE_MS = 30_000;
 
