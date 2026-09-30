@@ -10,6 +10,7 @@
 		"deps": "bun ./dependencies/check.ts",
 		"deps:set": "bun ./dependencies/set.ts",
 		"deps:migrate": "bun ./dependencies/migrate.ts",
+		"gguf": "bun ./gguf/convert.ts",
 		"test": "bun ./testing/run.ts"
 	},
 	"devDependencies": {

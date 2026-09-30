@@ -10,6 +10,8 @@ shabti_config/
 my-models.ini
 shabti-models.json
 custom_models.ini
+# the downloads and conversions of gguf/convert.ts
+gguf/work/
 # the configurator's cache of the releases it last found on GitHub
 shabti-releases.json
 
