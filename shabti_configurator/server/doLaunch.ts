@@ -1,4 +1,4 @@
-import { $ } from "bun";
+import { runCompose } from "./composeProgress";
 import * as envfile from "envfile";
 import getEnvPath from "./getEnvPath";
 import getEnvs from "./getEnvs";
@@ -17,12 +17,12 @@ export default async function* (
 			yield logMessage("Stopping Shabti Docker Compose configuration...");
 			// this removes the containers and the network but leaves the volumes alone, so no
 			// models or ingested documents are lost
-			await $`docker compose -f ./docker_compose/docker-compose.yml down`;
+			yield* runCompose("./docker_compose/docker-compose.yml", ["down"]);
 			return;
 		}
 		yield logMessage("Stopping local Docker development configuration...");
 		await stopWatchProcess(state);
-		await $`docker compose -f ./docker_compose/docker-compose-dev.yml stop`;
+		yield* runCompose("./docker_compose/docker-compose-dev.yml", ["stop"]);
 		return;
 	}
 	envs.SHABTI_COMPUTE = options.has("use_gpu") ? "cuda" : "cpu";

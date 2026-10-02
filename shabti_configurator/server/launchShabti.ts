@@ -1,4 +1,4 @@
-import { $ } from "bun";
+import { runCompose } from "./composeProgress";
 import buildImages from "./buildImages";
 import { getConnectivity } from "./connectivity";
 import getEnvs from "./getEnvs";
@@ -28,12 +28,12 @@ export default async function* (
 			);
 		} else {
 			yield logMessage("Updating Python lockfiles...");
-			await lockPythonDeps();
+			yield* lockPythonDeps();
 		}
 		yield logMessage(
 			"Building Docker image to run local code. This can take a while depending on your internet connection...",
 		);
-		if (!(await buildImages("./docker_compose/docker-compose-dev.yml", {})))
+		if (!(yield* buildImages("./docker_compose/docker-compose-dev.yml", {})))
 			yield logMessage(
 				"Couldn't rebuild the Docker images, using the ones already built.",
 			);
@@ -49,7 +49,7 @@ export default async function* (
 		]);
 	} else {
 		yield logMessage("Launching Shabti Docker Compose configuration...");
-		await $`docker compose -f ./docker_compose/docker-compose.yml up -d`;
+		yield* runCompose("./docker_compose/docker-compose.yml", ["up", "-d"]);
 	}
 	const envs = await getEnvs();
 	if (envs.SHABTI_SECURITY_ENABLED != "True") return;

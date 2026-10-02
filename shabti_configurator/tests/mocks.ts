@@ -3,13 +3,23 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spyOn } from "bun:test";
 import * as docker from "../server/docker";
-import type { ComposeService, PullEvent } from "../server/docker";
+import type { ComposeEvent, ComposeService } from "../server/docker";
+
+/** runs a generator to the end, keeping what it yielded along the way */
+export const drain = async <U, T>(generator: AsyncGenerator<U, T>) => {
+	const updates: U[] = [];
+	while (true) {
+		const next = await generator.next();
+		if (next.done) return { result: next.value, updates };
+		updates.push(next.value);
+	}
+};
 
 /** what the mocked Docker commands answer with, and what they were asked to do */
 export const dockerState = () => ({
 	pullSucceeds: true,
 	/** what each pull reports before it finishes */
-	pullEvents: [] as PullEvent[],
+	pullEvents: [] as ComposeEvent[],
 	/** how each pull in turn ends, after which they all end with pullSucceeds */
 	pullResults: [] as boolean[],
 	pulls: 0,
@@ -31,13 +41,14 @@ export const mockDocker = (state: ReturnType<typeof dockerState>) => {
 	);
 	spyOn(docker, "composePull").mockImplementation(async function* () {
 		state.pulls++;
-		yield* state.pullEvents;
+		for (const event of state.pullEvents) yield { kind: "event", event };
 		return state.pullResults.shift() ?? state.pullSucceeds;
 	});
-	spyOn(docker, "composeBuild").mockImplementation(async () => {
+	spyOn(docker, "composeBuild").mockImplementation(async function* () {
 		// shaped like Bun's ShellError, which is all describeError looks at
 		if (!state.buildSucceeds)
 			throw { exitCode: 1, stderr: Buffer.from("failed to solve") };
+		return 0;
 	});
 	spyOn(docker, "composeServices").mockImplementation(
 		async () => state.services,

@@ -3,10 +3,10 @@ import { composePull, composeServices, imageExists } from "./docker";
 import { ImagesUnavailableError } from "./errors";
 import logMessage from "./logMessage";
 import type { OperationUpdate } from "./operationProtocol";
-import pullProgress from "./pullProgress";
+import composeProgress from "./composeProgress";
 
-// a slow connection drops the odd download, and another attempt picks up where it left off, the
-// layers that made it are kept
+// when Docker gives up on a pull it deletes everything it had downloaded, so another attempt starts
+// over. That still gets through a connection which drops out for a while
 const PULL_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5_000;
 
@@ -23,7 +23,7 @@ export default async function* (
 	ignoreBuildable = false,
 ): AsyncGenerator<OperationUpdate, boolean> {
 	for (let attempt = 1; ; attempt++) {
-		if (yield* pullProgress(composePull(composeFile, env, ignoreBuildable)))
+		if (yield* composeProgress(composePull(composeFile, env, ignoreBuildable)))
 			return true;
 		// offline every attempt fails straight away, so there's no point
 		if (attempt == PULL_ATTEMPTS || (await getConnectivity()) == "offline")

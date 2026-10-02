@@ -1,6 +1,8 @@
+import composeProgress from "./composeProgress";
 import { getConnectivity } from "./connectivity";
 import { composeBuild, composeServices, imageExists } from "./docker";
 import { ImageBuildError } from "./errors";
+import type { OperationUpdate } from "./operationProtocol";
 
 /**
  * Builds the images for the local code, falling back to the last build when that fails offline.
@@ -8,9 +10,12 @@ import { ImageBuildError } from "./errors";
  *
  * Returns whether the images were rebuilt, throws if any are missing.
  */
-export default async (composeFile: string, env: Record<string, string>) => {
+export default async function* (
+	composeFile: string,
+	env: Record<string, string>,
+): AsyncGenerator<OperationUpdate, boolean> {
 	try {
-		await composeBuild(composeFile, env);
+		yield* composeProgress(composeBuild(composeFile, env));
 		return true;
 	} catch (error) {
 		if ((await getConnectivity()) != "offline") throw error;
@@ -26,4 +31,4 @@ export default async (composeFile: string, env: Record<string, string>) => {
 		if (!(await imageExists(image))) missing.push(image);
 	if (missing.length) throw new ImageBuildError(missing);
 	return false;
-};
+}

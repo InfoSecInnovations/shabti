@@ -22,6 +22,7 @@ import { getConnectivity } from "./connectivity";
 import { requireModels } from "./listDownloadedModels";
 import ensureImages from "./ensureImages";
 import buildImages from "./buildImages";
+import { runCompose } from "./composeProgress";
 
 export default async function* (
 	options: FormData,
@@ -127,7 +128,7 @@ export default async function* (
 			);
 		} else {
 			yield logMessage("updating Python lockfiles...");
-			await lockPythonDeps();
+			yield* lockPythonDeps();
 		}
 	}
 	yield logMessage(
@@ -140,7 +141,7 @@ export default async function* (
 		);
 	if (isLocal) {
 		yield logMessage("building Docker images from local files...");
-		if (!(await buildImages(composeFile, envs)))
+		if (!(yield* buildImages(composeFile, envs)))
 			yield logMessage(
 				"Couldn't rebuild the Docker images, using the ones already built.",
 			);
@@ -159,7 +160,7 @@ export default async function* (
 			"docker_compose",
 			"docker-compose-launch-keycloak.yml",
 		);
-		await $`docker compose -f ${keycloakComposeFile} up -d`;
+		yield* runCompose(keycloakComposeFile, ["up", "-d"]);
 		envs.KEYCLOAK_CLIENT_ID = "shabti-auth";
 		envs.KEYCLOAK_CLIENT_SECRET = await getKeycloakClientSecret();
 		yield logMessage("got Keycloak credentials.");
@@ -172,16 +173,16 @@ export default async function* (
 	);
 	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
 	yield logMessage("launching LLM service...");
-	await $`docker compose -f ${loaderComposeFile} up -d`; // launch llama.cpp
+	yield* runCompose(loaderComposeFile, ["up", "-d"]); // launch llama.cpp
 	// offline, requireModels has already confirmed they're all downloaded
 	if (online) {
 		// ensure requested models are downloaded so they will be available once the install is done
 		for (const modelName of [...chatModels, embeddingsModel])
 			yield* modelDownloadProgress(modelName);
 	}
-	await $`docker compose -f ${loaderComposeFile} down`;
+	yield* runCompose(loaderComposeFile, ["down"]);
 	yield logMessage("launching Docker containers...");
-	await $`docker compose -f ${composeFile} up -d`;
+	yield* runCompose(composeFile, ["up", "-d"]);
 	if (isLocal && installVenv) {
 		// if we're running the install for automated testing we assume the venv is already configured, so we want to skip this step
 		yield logMessage(
@@ -197,7 +198,7 @@ export default async function* (
 	// TODO: wait for Llama.cpp to come online and preload the models
 	if (isLocal) {
 		// in the development environment we stop the containers as the expectation is that they will be run in watch mode
-		await $`docker compose -f ${composeFile} stop`;
+		yield* runCompose(composeFile, ["stop"]);
 	}
 	delete envs[INCOMPLETE_KEY];
 	delete process.env[INCOMPLETE_KEY];

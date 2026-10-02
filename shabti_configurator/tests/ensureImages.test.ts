@@ -10,20 +10,21 @@ import {
 import { resetConnectivity } from "../server/connectivity";
 import ensureImages from "../server/ensureImages";
 import { ImagesUnavailableError } from "../server/errors";
-import type { OperationUpdate } from "../server/operationProtocol";
-import { dockerState, mockDocker, mockFetch, reachableHosts } from "./mocks";
+import {
+	dockerState,
+	drain,
+	mockDocker,
+	mockFetch,
+	reachableHosts,
+} from "./mocks";
 
 let docker: ReturnType<typeof dockerState>;
 
-/** runs the pull to the end, keeping what it reported along the way */
 const run = async (ignoreBuildable = false) => {
-	const pull = ensureImages("compose.yml", {}, ignoreBuildable);
-	const updates: OperationUpdate[] = [];
-	while (true) {
-		const next = await pull.next();
-		if (next.done) return { updated: next.value, updates };
-		updates.push(next.value);
-	}
+	const { result, updates } = await drain(
+		ensureImages("compose.yml", {}, ignoreBuildable),
+	);
+	return { updated: result, updates };
 };
 
 beforeEach(() => {
@@ -102,6 +103,11 @@ describe("ensureImages", () => {
 
 	test("passes on the pull's progress", async () => {
 		docker.pullEvents = [
+			{
+				id: "Image apache/tika:3.3.0.0-full",
+				status: "Working",
+				text: "Pulling",
+			},
 			{ id: "Image apache/tika:3.3.0.0-full", status: "Done", text: "Pulled" },
 		];
 		const { updates } = await run();

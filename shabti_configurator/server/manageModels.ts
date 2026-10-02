@@ -46,7 +46,7 @@ export default async function* (options: FormData) {
 	await stopLlamaCpp();
 	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
 	yield logMessage("relaunching the LLM service...");
-	await startLlamaCpp();
+	yield* startLlamaCpp();
 	// we run this over every selected model rather than just the new ones because it's cheap,
 	// downloadModel returns straight away if Llama.cpp already has the model, and it repairs
 	// the case where a model is in the ini file but was never successfully downloaded.

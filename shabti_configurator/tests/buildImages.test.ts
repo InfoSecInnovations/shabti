@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import buildImages from "../server/buildImages";
 import { resetConnectivity } from "../server/connectivity";
 import { ImageBuildError } from "../server/errors";
-import { dockerState, mockDocker, mockFetch, reachableHosts } from "./mocks";
+import {
+	dockerState,
+	drain,
+	mockDocker,
+	mockFetch,
+	reachableHosts,
+} from "./mocks";
 
 let docker: ReturnType<typeof dockerState>;
 
@@ -23,13 +29,13 @@ afterEach(() => {
 
 describe("buildImages", () => {
 	test("reports a rebuild when the build goes through", async () => {
-		expect(await buildImages("compose.yml", {})).toBe(true);
+		expect((await drain(buildImages("compose.yml", {}))).result).toBe(true);
 	});
 
 	test("leaves the build's own error to explain a failure online", async () => {
 		docker.buildSucceeds = false;
 		mockFetch(reachableHosts("https://huggingface.co"));
-		const error = await buildImages("compose.yml", {}).catch((e) => e);
+		const error = await drain(buildImages("compose.yml", {})).catch((e) => e);
 		expect(error).not.toBeInstanceOf(ImageBuildError);
 		expect(error.exitCode).toBe(1);
 	});
@@ -38,14 +44,14 @@ describe("buildImages", () => {
 		docker.buildSucceeds = false;
 		docker.images = new Set(["shabti-shabti", "shabti-shabti-web"]);
 		mockFetch(() => undefined);
-		expect(await buildImages("compose.yml", {})).toBe(false);
+		expect((await drain(buildImages("compose.yml", {}))).result).toBe(false);
 	});
 
 	test("names the images that were never built", async () => {
 		docker.buildSucceeds = false;
 		docker.images = new Set(["shabti-shabti"]);
 		mockFetch(() => undefined);
-		const error = await buildImages("compose.yml", {}).catch((e) => e);
+		const error = await drain(buildImages("compose.yml", {})).catch((e) => e);
 		expect(error).toBeInstanceOf(ImageBuildError);
 		expect(error.message).toContain("shabti-shabti-web");
 		expect(error.message).not.toContain("apache/tika");

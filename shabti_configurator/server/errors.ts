@@ -58,3 +58,15 @@ export class ModelsUnavailableError extends Error {
 		this.name = "ModelsUnavailableError";
 	}
 }
+
+/** a compose command exited with an error, describeError shows the stderr as it does a ShellError's */
+export class ComposeCommandError extends Error {
+	constructor(
+		args: string[],
+		public exitCode: number,
+		public stderr: string,
+	) {
+		super(`docker compose ${args.join(" ")} failed with exit code ${exitCode}`);
+		this.name = "ComposeCommandError";
+	}
+}
