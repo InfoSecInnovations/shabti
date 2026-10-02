@@ -3,11 +3,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spyOn } from "bun:test";
 import * as docker from "../server/docker";
-import type { ComposeService } from "../server/docker";
+import type { ComposeService, PullEvent } from "../server/docker";
 
 /** what the mocked Docker commands answer with, and what they were asked to do */
 export const dockerState = () => ({
 	pullSucceeds: true,
+	/** what each pull reports before it finishes */
+	pullEvents: [] as PullEvent[],
+	/** how each pull in turn ends, after which they all end with pullSucceeds */
+	pullResults: [] as boolean[],
+	pulls: 0,
 	buildSucceeds: true,
 	images: new Set<string>(),
 	volumes: new Set<string>(),
@@ -24,9 +29,11 @@ export const mockDocker = (state: ReturnType<typeof dockerState>) => {
 	spyOn(docker, "volumeExists").mockImplementation(async (volume) =>
 		state.volumes.has(volume),
 	);
-	spyOn(docker, "composePull").mockImplementation(
-		async () => state.pullSucceeds,
-	);
+	spyOn(docker, "composePull").mockImplementation(async function* () {
+		state.pulls++;
+		yield* state.pullEvents;
+		return state.pullResults.shift() ?? state.pullSucceeds;
+	});
 	spyOn(docker, "composeBuild").mockImplementation(async () => {
 		// shaped like Bun's ShellError, which is all describeError looks at
 		if (!state.buildSucceeds)

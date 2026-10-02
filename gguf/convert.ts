@@ -2,7 +2,7 @@
  * Converts a HuggingFace embeddings model to GGUF with llama.cpp and uploads it to a HuggingFace
  * organization, where Shabti's llama.cpp can load it as `hf = <org>/<name>:<QUANT>`.
  *
- * bun ./gguf/convert.ts <source> [--org <org>] [--name <name>] [--quants <quants...>] [--image <image>] [--force] [--upload]
+ * bun ./gguf/convert.ts <source> [--org <org>] [--name <name>] [--quants <quants...>] [--image <image>] [--force] [--upload] [--no-xet]
  *
  * Without --upload it stops once the files in gguf/work/<model>/out have been checked, so they can be
  * looked over first. Running it again with --upload reuses them rather than converting again. Only Docker
@@ -101,12 +101,19 @@ const docker = async (workDir: string, args: string[], capture = false) => {
 };
 
 /** the hf CLI, given the token by name so its value never appears on a command line */
-const hf = (workDir: string, args: string[]) =>
+const hf = (workDir: string, args: string[], xet: boolean) =>
 	docker(workDir, [
 		"-e",
 		"HF_TOKEN",
+		// the LFS route Hugging Face keeps for older clients, sending files to its S3 storage rather than
+		// to the Xet servers
+		...(xet ? [] : ["-e", "HF_HUB_DISABLE_XET=1"]),
 		"-e",
 		"UV_CACHE_DIR=/tmp/uv-cache",
+		// hf_xet logs under HOME by default, which goes with the container, and its errors only say a
+		// request failed, so the logs are the one place saying how
+		"-e",
+		"HF_XET_LOG_DEST=/work/logs/",
 		"--entrypoint",
 		"uvx",
 		UV_IMAGE,
@@ -230,6 +237,7 @@ export const convert = async ({
 	image,
 	force,
 	upload,
+	xet = true,
 }: {
 	source: string;
 	org: string;
@@ -238,6 +246,7 @@ export const convert = async ({
 	image?: string;
 	force?: boolean;
 	upload?: boolean;
+	xet?: boolean;
 }) => {
 	const model = source.split("/")[1];
 	if (!model || source.split("/").length !== 2)
@@ -256,13 +265,17 @@ export const convert = async ({
 
 	console.log(`downloading ${source}`);
 	// hf download skips what is already there, so this only fetches anything missing or changed
-	await hf(workDir, [
-		"download",
-		source,
-		"--local-dir",
-		"/work/source",
-		...EXCLUDE.flatMap((pattern) => ["--exclude", pattern]),
-	]);
+	await hf(
+		workDir,
+		[
+			"download",
+			source,
+			"--local-dir",
+			"/work/source",
+			...EXCLUDE.flatMap((pattern) => ["--exclude", pattern]),
+		],
+		xet,
+	);
 
 	const fileOf = (quant: string) => `${model}-${quant}.gguf`;
 	// llama-quantize works from F16, which is made first but only uploaded when it was asked for
@@ -325,20 +338,24 @@ export const convert = async ({
 
 	console.log(`uploading to ${repoId}`);
 	// the repo is created, public, when it does not exist yet
-	await hf(workDir, [
-		"upload",
-		repoId,
-		"/work/out",
-		".",
-		"--repo-type",
-		"model",
-		"--commit-message",
-		`${quants.join(", ")} from llama.cpp ${build}`,
-		...["README.md", ...files.map(({ file }) => file)].flatMap((file) => [
-			"--include",
-			file,
-		]),
-	]);
+	await hf(
+		workDir,
+		[
+			"upload",
+			repoId,
+			"/work/out",
+			".",
+			"--repo-type",
+			"model",
+			"--commit-message",
+			`${quants.join(", ")} from llama.cpp ${build}`,
+			...["README.md", ...files.map(({ file }) => file)].flatMap((file) => [
+				"--include",
+				file,
+			]),
+		],
+		xet,
+	);
 	console.log(
 		`\nhttps://huggingface.co/${repoId}\n\nfor custom_models.ini:\n\n${iniSection(model, repoId, quants[0] as string)}`,
 	);
@@ -366,6 +383,10 @@ if (import.meta.main) {
 			"--upload",
 			"publish the files to HuggingFace once they are checked",
 		)
+		.option(
+			"--no-xet",
+			"transfer through Hugging Face's LFS route rather than Xet",
+		)
 		.parse();
 	const options = command.opts();
 	const org = options.org ?? process.env.HF_ORG;
@@ -379,5 +400,6 @@ if (import.meta.main) {
 		image: options.image,
 		force: options.force,
 		upload: options.upload,
+		xet: options.xet,
 	});
 }

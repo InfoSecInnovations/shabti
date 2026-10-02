@@ -134,7 +134,7 @@ export default async function* (
 		"downloading Docker images. This can take quite a long time if this is your first install or updates have been released to the Docker images...",
 	);
 	// the full stack includes every service the Keycloak and model loader compose files launch
-	if (!(await ensureImages(composeFile, envs, isLocal)))
+	if (!(yield* ensureImages(composeFile, envs, isLocal)))
 		yield logMessage(
 			"Couldn't update the Docker images, using the ones already downloaded.",
 		);

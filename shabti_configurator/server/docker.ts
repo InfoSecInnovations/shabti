@@ -21,17 +21,72 @@ export const imageExists = async (image: string) =>
 export const volumeExists = async (volume: string) =>
 	(await $`docker volume inspect ${volume}`.quiet().nothrow()).exitCode == 0;
 
-/** whether the pull went through, a failure is left to the caller to make sense of */
-export const composePull = async (
+/** what `docker compose --progress json` reports on an image, or on one of its layers (parent_id) */
+export interface PullEvent {
+	id: string;
+	parent_id?: string;
+	status?: "Working" | "Done" | "Error" | "Warning";
+	text?: string;
+	details?: string;
+	current?: number;
+	total?: number;
+}
+
+/**
+ * Streams the pull's progress, then returns whether it went through. A failure is left to the
+ * caller to make sense of.
+ */
+export async function* composePull(
 	composeFile: string,
 	env: Record<string, string>,
 	ignoreBuildable: boolean,
-) =>
-	(
-		await $`docker compose -f ${composeFile} pull ${ignoreBuildable ? ["--ignore-buildable"] : []}`
-			.env(withEnv(env))
-			.nothrow()
-	).exitCode == 0;
+): AsyncGenerator<PullEvent, boolean> {
+	const proc = Bun.spawn(
+		[
+			"docker",
+			"compose",
+			"--progress",
+			"json",
+			"-f",
+			composeFile,
+			"pull",
+			// otherwise one image failing aborts the downloads of all the others
+			"--ignore-pull-failures",
+			...(ignoreBuildable ? ["--ignore-buildable"] : []),
+		],
+		{ env: withEnv(env), stdout: "ignore", stderr: "pipe" },
+	);
+	// with failures ignored the exit code doesn't tell us about them, the events do
+	let failed = false;
+	let buffer = "";
+	try {
+		// compose writes its progress to stderr, mixed in with any errors of its own
+		for await (const chunk of proc.stderr.pipeThrough(
+			new TextDecoderStream(),
+		)) {
+			const lines = (buffer + chunk).split("\n");
+			buffer = lines.pop()!;
+			for (const line of lines.map((line) => line.trim()).filter(Boolean)) {
+				let event: (PullEvent & { level?: string; msg?: string }) | undefined;
+				try {
+					if (line.startsWith("{")) event = JSON.parse(line);
+				} catch {}
+				// compose's own log messages come through as JSON too, they just don't have an id
+				if (!event?.id) {
+					console.error(event?.msg ? `${event.level}: ${event.msg}` : line);
+					continue;
+				}
+				if (event.status == "Error") failed = true;
+				yield event;
+			}
+		}
+		if (buffer.trim()) console.error(buffer.trim());
+		return (await proc.exited) == 0 && !failed;
+	} finally {
+		// the install gave up on the pull partway through
+		if (proc.exitCode === null) proc.kill();
+	}
+}
 
 export const composeServices = async (
 	composeFile: string,
