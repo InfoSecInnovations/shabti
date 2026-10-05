@@ -45,12 +45,12 @@ describe("listDownloadedModels", () => {
 	test("reads the cache of the running llama.cpp", async () => {
 		mockFetch((url) =>
 			url.startsWith("http://localhost:11434/models")
-				? routerModels(HF.qwen, HF.snowflake)
+				? routerModels(HF.miniCpm, HF.miniLm)
 				: undefined,
 		);
 		// the preset entry isn't a file in the cache, so it doesn't count
 		expect(await listDownloadedModels()).toEqual(
-			new Set([HF.qwen, HF.snowflake]),
+			new Set([HF.miniCpm, HF.miniLm]),
 		);
 		expect(docker.started).toEqual([]);
 	});
@@ -71,12 +71,12 @@ describe("listDownloadedModels", () => {
 	test("starts a llama.cpp of its own when Shabti isn't running", async () => {
 		mockFetch((url) =>
 			url.startsWith("http://localhost:11435/models")
-				? routerModels(HF.mistral7b)
+				? routerModels(HF.granite)
 				: undefined,
 		);
 		docker.volumes.add("shabti_llama-cpp-models");
 		docker.images.add(LLAMA_IMAGE);
-		expect(await listDownloadedModels()).toEqual(new Set([HF.mistral7b]));
+		expect(await listDownloadedModels()).toEqual(new Set([HF.granite]));
 		expect(docker.started).toEqual(["shabti-model-probe"]);
 		// cleared beforehand in case an earlier probe was left behind, and afterwards
 		expect(docker.removed).toEqual([
@@ -103,7 +103,9 @@ describe("listDownloadedModels", () => {
 describe("requireModels", () => {
 	test("doesn't check anything when online", async () => {
 		const fetch = mockFetch(reachableHosts("https://huggingface.co"));
-		expect(await requireModels(["mistral7b", "snowflake-arctic"])).toBe(true);
+		expect(await requireModels(["Granite-4.2-3B", "all-MiniLM-L6-v2"])).toBe(
+			true,
+		);
 		expect(
 			fetch.mock.calls.some(([url]) => String(url).includes("localhost")),
 		).toBe(false);
@@ -112,23 +114,26 @@ describe("requireModels", () => {
 	test("accepts downloaded models when offline", async () => {
 		mockFetch((url) =>
 			url.startsWith("http://localhost:11434/models")
-				? routerModels(HF.qwen, HF.snowflake)
+				? routerModels(HF.miniCpm, HF.miniLm)
 				: undefined,
 		);
-		expect(await requireModels(["qwen2.5", "snowflake-arctic"])).toBe(false);
+		expect(await requireModels(["MiniCPM5-2B", "all-MiniLM-L6-v2"])).toBe(
+			false,
+		);
 	});
 
 	test("names the models that aren't downloaded when offline", async () => {
 		mockFetch((url) =>
 			url.startsWith("http://localhost:11434/models")
-				? routerModels(HF.qwen, HF.snowflake)
+				? routerModels(HF.miniCpm, HF.miniLm)
 				: undefined,
 		);
-		const error = await requireModels(["mistral7b", "snowflake-arctic"]).catch(
-			(e) => e,
-		);
+		const error = await requireModels([
+			"Granite-4.2-3B",
+			"all-MiniLM-L6-v2",
+		]).catch((e) => e);
 		expect(error).toBeInstanceOf(ModelsUnavailableError);
-		expect(error.message).toContain("mistral7b");
-		expect(error.message).not.toContain("snowflake-arctic");
+		expect(error.message).toContain("Granite-4.2-3B");
+		expect(error.message).not.toContain("all-MiniLM-L6-v2");
 	});
 });

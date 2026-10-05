@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import path from "node:path";
-import getDefaultModelSelection from "../shabti_configurator/getDefaultModelSelection";
+import type { ModelSelection } from "../shabti_configurator/getDefaultModelSelection";
+import downloadModel from "../shabti_configurator/server/downloadModel";
 import writeModelsIni from "../shabti_configurator/server/writeModelsIni";
 import {
 	type TestType,
@@ -120,15 +121,54 @@ const run = async (
 export const lockPythonDeps = () =>
 	$`docker compose -f ${path.join(REPO, "docker_containers", "docker-compose-uv-lock.yml")} run --rm uv-lock`;
 
+// the smallest models in the catalogue, to keep downloads and memory down. two chat models so
+// test_model_routes can check that loading one swaps the other out
+const TEST_MODELS: ModelSelection = {
+	chatModels: ["MiniCPM5-2B", "Granite-4.2-3B"],
+	embeddingsModel: "all-MiniLM-L6-v2",
+	defaultModel: "MiniCPM5-2B",
+};
+
 /**
  * The compose files pull llama.cpp in from the configurator, which bind mounts my-models.ini. That
  * file is generated during a normal install, but the tests never run one, so we have to write it
  * ourselves or Docker will mount an empty directory in its place.
  */
 export const writeTestModelsIni = () =>
-	getDefaultModelSelection().then((selection) =>
-		writeModelsIni(selection, path.join(REPO, "shabti_configurator")),
+	writeModelsIni(TEST_MODELS, path.join(REPO, "shabti_configurator"));
+
+/**
+ * llama.cpp only fetches a model the first time something loads it, which left the download to
+ * the suites' model fixtures and their per test timeout. Like an install, we download them up
+ * front instead; a model that is already there costs nothing.
+ */
+export const preloadModels = async (testType: TestType) => {
+	const started = await run(
+		compose(testType, ["up", "-d", "--wait", "llama-cpp"]),
 	);
+	if (started.code !== 0) return started;
+	try {
+		for (const modelName of [
+			...TEST_MODELS.chatModels,
+			TEST_MODELS.embeddingsModel,
+		]) {
+			// every 10% of each file, so a large download shows it is moving without flooding the output
+			const reported = new Map<string, number>();
+			for await (const { progress, total, file } of downloadModel(modelName)) {
+				const step = total ? Math.floor((progress / total) * 10) : 0;
+				if (reported.get(file) === step) continue;
+				reported.set(file, step);
+				console.log(`downloading ${modelName} (${file}): ${step * 10}%`);
+			}
+		}
+		return { code: 0, tail: [] as string[] };
+	} catch (error) {
+		return {
+			code: 1,
+			tail: [String(error instanceof Error ? error.message : error)],
+		};
+	}
+};
 
 /**
  * Back to a blank slate before an end-to-end type, and only for the state that type owns. Note

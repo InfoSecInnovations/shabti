@@ -29,6 +29,16 @@ export class KeycloakUnavailableError extends Error {
 	}
 }
 
+/** GPU acceleration was selected but Docker can't give containers the GPU */
+export class GpuUnavailableError extends Error {
+	constructor() {
+		super(
+			"Docker can't access the GPU. GPU acceleration needs the NVIDIA drivers and, on Windows, Docker Desktop's WSL2 backend. Disable GPU acceleration or switch backend and try again.",
+		);
+		this.name = "GpuUnavailableError";
+	}
+}
+
 /** the Docker images couldn't be pulled and some of them aren't already downloaded */
 export class ImagesUnavailableError extends Error {
 	constructor(images: string[]) {

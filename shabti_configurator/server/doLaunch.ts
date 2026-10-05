@@ -4,6 +4,7 @@ import getEnvPath from "./getEnvPath";
 import getEnvs from "./getEnvs";
 import launchShabti from "./launchShabti";
 import logMessage from "./logMessage";
+import requireGpu from "./requireGpu";
 import stopWatchProcess from "./stopWatchProcess";
 
 export default async function* (
@@ -26,6 +27,7 @@ export default async function* (
 		return;
 	}
 	envs.SHABTI_COMPUTE = options.has("use_gpu") ? "cuda" : "cpu";
+	await requireGpu(envs);
 	yield logMessage(
 		`Launching Shabti ${envs.SHABTI_COMPUTE == "cuda" ? "with" : "without"} GPU acceleration.`,
 	);

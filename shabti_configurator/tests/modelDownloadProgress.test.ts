@@ -17,15 +17,15 @@ test("gives each file of a model its own progress bar", async () => {
 		},
 	);
 	try {
-		const updates = await Array.fromAsync(modelDownloadProgress("mistral7b"));
+		const updates = await Array.fromAsync(modelDownloadProgress("MiniCPM5-2B"));
 		expect(updates.map((update) => update.key)).toEqual([
-			"mistral7b/a.gguf",
-			"mistral7b/b.gguf",
-			"mistral7b/a.gguf",
+			"MiniCPM5-2B/a.gguf",
+			"MiniCPM5-2B/b.gguf",
+			"MiniCPM5-2B/a.gguf",
 		]);
 		expect(updates[0]).toEqual({
-			key: "mistral7b/a.gguf",
-			label: "file a.gguf for model mistral7b",
+			key: "MiniCPM5-2B/a.gguf",
+			label: "file a.gguf for model MiniCPM5-2B",
 			done: 1024,
 			total: 4096,
 			detail: `loaded ${humanize.bytes(1024)} / ${humanize.bytes(4096)}`,

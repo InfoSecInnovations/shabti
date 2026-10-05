@@ -23,6 +23,7 @@ import { requireModels } from "./listDownloadedModels";
 import ensureImages from "./ensureImages";
 import buildImages from "./buildImages";
 import { runCompose } from "./composeProgress";
+import requireGpu from "./requireGpu";
 
 export default async function* (
 	options: FormData,
@@ -146,6 +147,7 @@ export default async function* (
 				"Couldn't rebuild the Docker images, using the ones already built.",
 			);
 	}
+	await requireGpu(envs);
 	// keeping the language models, they're slow to download and the install can reuse them
 	yield* doUninstall(false, state);
 	if (securityEnabled) {

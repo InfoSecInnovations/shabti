@@ -5,8 +5,8 @@ import { LlamaCppUnavailableError, ModelDownloadError } from "../server/errors";
 
 // a model which is really in shabti_models.ini, so getModelsConfig resolves it the way it would
 // in an install
-const MODEL = "mistral7b";
-const HF = "bartowski/Mistral-7B-Instruct-v0.3-GGUF:Q4_K_M";
+const MODEL = "MiniCPM5-2B";
+const HF = "openbmb/MiniCPM5-2B-GGUF:Q4_K_M";
 
 const event = (name: string, data?: unknown) => ({
 	data: JSON.stringify({ model: HF, event: name, data }),

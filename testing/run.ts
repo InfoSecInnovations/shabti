@@ -13,6 +13,7 @@ import {
 	down,
 	lockPythonDeps,
 	nuke,
+	preloadModels,
 	runSuite,
 	writeTestModelsIni,
 } from "./stack";
@@ -213,6 +214,15 @@ for (const testType of testTypes) {
 
 		// the realm already has them if its state was kept, and create_user rejects duplicates
 		if (testType === "enabled" && opts.clean) await addKeycloakDemoUsers();
+
+		if (isEndToEnd(testType)) {
+			console.log("downloading the test models...");
+			const preloaded = await preloadModels(testType);
+			if (preloaded.code !== 0) {
+				account("the test models could not be downloaded", preloaded.tail);
+				continue;
+			}
+		}
 
 		for (const suite of selected) {
 			if (bailed) break;

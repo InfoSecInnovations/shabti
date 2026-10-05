@@ -29,6 +29,9 @@ export const dockerState = () => ({
 	services: {} as Record<string, ComposeService>,
 	started: [] as string[],
 	removed: [] as string[],
+	gpuWorks: true,
+	/** the images the GPU was checked with */
+	gpuProbes: [] as string[],
 });
 
 /** replaces each Docker command with an answer from `state`, undone by mock.restore */
@@ -59,6 +62,10 @@ export const mockDocker = (state: ReturnType<typeof dockerState>) => {
 	) => {
 		state.started.push(name);
 	}) as any);
+	spyOn(docker, "gpuAvailable").mockImplementation(async (image) => {
+		state.gpuProbes.push(image);
+		return state.gpuWorks;
+	});
 	spyOn(docker, "removeContainer").mockImplementation((async (name: string) => {
 		state.removed.push(name);
 	}) as any);
@@ -102,11 +109,11 @@ export const useTempCwd = () => {
 	};
 };
 
+/** models which are really in shabti_models.ini, so getModelsConfig resolves them */
 export const HF = {
-	mistral7b: "bartowski/Mistral-7B-Instruct-v0.3-GGUF:Q4_K_M",
-	qwen: "madhusudhan001/qwen2.5-0.5b-materials-science:Q8_0",
-	snowflake: "Snowflake/snowflake-arctic-embed-m-v1.5:Q8_0",
-	paraphrase: "mykor/paraphrase-multilingual-mpnet-base-v2.gguf:Q4_K_M",
+	miniCpm: "openbmb/MiniCPM5-2B-GGUF:Q4_K_M",
+	granite: "ibm-granite/granite-4.2-3b-GGUF:Q4_K_M",
+	miniLm: "infosecinnovations/all-MiniLM-L6-v2-GGUF:Q8_0",
 };
 
 /** a llama.cpp router's /models, with the given ids in its cache and a preset that isn't */
@@ -114,6 +121,6 @@ export const routerModels = (...cachedIds: string[]) =>
 	json({
 		data: [
 			...cachedIds.map((id) => ({ id, tags: [], source: "cache" })),
-			{ id: "mistral7b", tags: ["chat", "default"], source: "preset" },
+			{ id: "Ling-3.0-tiny", tags: ["chat", "default"], source: "preset" },
 		],
 	});

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { file } from "bun";
+import * as ini from "@std/ini";
 import getDefaultModelSelection from "../getDefaultModelSelection";
 import getModelsConfig, { getCustomModelsPath } from "../getModelsConfig";
+import shabtiModelsFile from "../shabti_models.ini" with { type: "file" };
 import { useTempCwd } from "./mocks";
 
 // an install directory, which only has a custom_models.ini once the user writes one
@@ -14,12 +17,11 @@ afterEach(async () => {
 	await cwd.leave();
 });
 
-const BUILT_IN = [
-	"mistral7b",
-	"paraphrase-multilingual",
-	"snowflake-arctic",
-	"qwen2.5",
-];
+// read off the shipped file, so this doesn't have to change whenever the catalogue does
+const BUILT_IN = Object.keys(
+	ini.parse(await file(shabtiModelsFile).text()) as Record<string, unknown>,
+);
+const SHIPPED_DEFAULT = "Ling-3.0-tiny";
 
 describe("getModelsConfig", () => {
 	test("is the shipped catalogue without a custom file", async () => {
@@ -44,7 +46,7 @@ describe("getModelsConfig", () => {
 			getCustomModelsPath(),
 			"[my-model]\nhf = someone/my-model-GGUF:Q4_K_M\ntags = chat\n",
 		);
-		expect((await getModelsConfig()).mistral7b.tags).toEqual([
+		expect((await getModelsConfig())[SHIPPED_DEFAULT].tags).toEqual([
 			"chat",
 			"default",
 		]);
@@ -55,17 +57,17 @@ describe("getModelsConfig", () => {
 			getCustomModelsPath(),
 			"[my-model]\nhf = someone/my-model-GGUF:Q4_K_M\ntags = chat, default\n",
 		);
-		expect((await getModelsConfig()).mistral7b.tags).toEqual(["chat"]);
+		expect((await getModelsConfig())[SHIPPED_DEFAULT].tags).toEqual(["chat"]);
 		expect((await getDefaultModelSelection()).defaultModel).toBe("my-model");
 	});
 
 	test("replaces a shipped model of the same name", async () => {
 		await Bun.write(
 			getCustomModelsPath(),
-			"[snowflake-arctic]\nhf = Snowflake/snowflake-arctic-embed-m-v1.5:Q4_K_M\ntags = embeddings\n",
+			"[all-MiniLM-L6-v2]\nhf = infosecinnovations/all-MiniLM-L6-v2-GGUF:Q4_K_M\ntags = embeddings\n",
 		);
-		expect((await getModelsConfig())["snowflake-arctic"]).toEqual({
-			hf: "Snowflake/snowflake-arctic-embed-m-v1.5:Q4_K_M",
+		expect((await getModelsConfig())["all-MiniLM-L6-v2"]).toEqual({
+			hf: "infosecinnovations/all-MiniLM-L6-v2-GGUF:Q4_K_M",
 			tags: ["embeddings"],
 		});
 	});

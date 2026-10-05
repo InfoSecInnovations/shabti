@@ -19,6 +19,15 @@ const withEnv = (env: Record<string, string>) =>
 export const imageExists = async (image: string) =>
 	(await $`docker image inspect ${image}`.quiet().nothrow()).exitCode == 0;
 
+// the same GPU request the CUDA service makes, which fails the same way it would when Docker has no
+// access to the GPU (anything other than the WSL2 backend on Windows, or no NVIDIA container toolkit)
+export const gpuAvailable = async (image: string) =>
+	(
+		await $`docker run --rm --pull never --gpus 1 ${image} --version`
+			.quiet()
+			.nothrow()
+	).exitCode == 0;
+
 export const volumeExists = async (volume: string) =>
 	(await $`docker volume inspect ${volume}`.quiet().nothrow()).exitCode == 0;
 
