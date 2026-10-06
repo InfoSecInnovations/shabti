@@ -55,6 +55,7 @@ def source(document_id, page_number):
             "languages": ["en"],
         },
         "page_metadata": {"page_number": page_number, "source": "a-doc.txt"},
+        "text": f"{document_id} page {page_number} says something",
     }
 
 
@@ -195,6 +196,19 @@ async def test_every_source_comes_before_the_response(context, chat_model, audit
     found = sources(chunks)
     assert [item.document_metadata.document_id for item in found] == ["doc-1", "doc-2"]
     assert [item.page_metadata.page_number for item in found] == [1, 7]
+
+
+async def test_a_source_carries_the_chunk_it_was_cited_for(
+    context, chat_model, audit, llm
+):
+    # the page only says where to look; the chunk is what the LLM was actually given
+    context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
+    llm(chunk(content="Hello"), DONE)
+    found = sources(await run())
+    assert [item.text for item in found] == [
+        "doc-1 page 1 says something",
+        "doc-2 page 7 says something",
+    ]
 
 
 async def test_no_sources_says_so_without_reaching_the_llm(

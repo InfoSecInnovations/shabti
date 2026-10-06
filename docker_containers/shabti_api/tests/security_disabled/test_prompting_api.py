@@ -93,3 +93,17 @@ async def test_a_question_longer_than_the_embeddings_model_takes_still_searches(
     question = " ".join(["What does the word prompting mean?"] * 400)
     context = await get_context_from_opensearch(shabti_collection_id, 5, question)
     assert "sources" in context
+
+
+async def test_every_source_carries_the_text_the_llm_was_given(
+    shabti_client, shabti_collection_id
+):
+    # the prompter shows each source's text as what was retrieved, which is only true if it is the
+    # context, piece for piece
+    context = await get_context_from_opensearch(
+        shabti_collection_id, 5, "What does the word prompting mean?"
+    )
+    assert context["sources"]
+    assert context["context"] == "\n".join(
+        source["text"] for source in context["sources"]
+    )

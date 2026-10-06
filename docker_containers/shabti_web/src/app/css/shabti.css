@@ -20,3 +20,12 @@
 .toast.text-bg-danger .btn-close {
 	filter: var(--bs-btn-close-white-filter);
 }
+
+/* A prompter source's chunk is document text, so its line breaks are kept as they were stored
+   rather than reflowed, and it is set apart from the answer it sits above. */
+.shabti-source-text > div {
+	white-space: pre-wrap;
+	border-left: 3px solid var(--bs-border-color);
+	padding-left: 0.75em;
+	margin-top: 0.5em;
+}

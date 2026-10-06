@@ -5,6 +5,7 @@ from .collections_data import CollectionsData
 import asyncio
 from shabti_types import TaskInfo, PromptConfigInfo, CollectionInfo
 from .doc_page_link import page_link
+from .source_text import source_text
 from typing import TypeVar
 from .load_models import load_models
 
@@ -189,7 +190,7 @@ def prompter_server(
             if x.response:
                 yield x.response
             elif x.source:
-                yield f"{page_link(collection_id, x.source)}\n\n"
+                yield f"{page_link(collection_id, x.source)}\n\n{source_text(x.source.text)}\n\n"
 
     @chat.on_user_submit
     async def on_chat_submit(user_input: str):

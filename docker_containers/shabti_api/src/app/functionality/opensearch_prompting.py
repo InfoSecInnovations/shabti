@@ -145,7 +145,11 @@ async def get_context_from_opensearch(
             continue
         texts.append(hit["text"])
         sources.append(
-            {"page_metadata": page, "doc_metadata": {**doc, "document_id": doc["id"]}}
+            {
+                "page_metadata": page,
+                "doc_metadata": {**doc, "document_id": doc["id"]},
+                "text": hit["text"],
+            }
         )
 
     return {

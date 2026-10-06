@@ -138,6 +138,8 @@ class PageInfo(BaseModel):
 class PromptSource(BaseModel):
     document_metadata: DocumentInfo
     page_metadata: PageInfo
+    # the chunk exactly as stored and as handed to the LLM, rather than the page it came from
+    text: str
 
 
 class PromptChunk(BaseModel):

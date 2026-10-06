@@ -56,6 +56,7 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
             source=PromptSource(
                 document_metadata=DocumentInfo(**source["doc_metadata"]),
                 page_metadata=PageInfo(**source["page_metadata"]),
+                text=source["text"],
             )
         )
     model_name = await get_loaded_chat_model()
