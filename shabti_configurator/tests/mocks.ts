@@ -29,7 +29,8 @@ export const dockerState = () => ({
 	services: {} as Record<string, ComposeService>,
 	started: [] as string[],
 	removed: [] as string[],
-	gpuWorks: true,
+	/** what each GPU check in turn fails with, after which they all succeed */
+	gpuErrors: [] as (string | undefined)[],
 	/** the images the GPU was checked with */
 	gpuProbes: [] as string[],
 });
@@ -62,9 +63,9 @@ export const mockDocker = (state: ReturnType<typeof dockerState>) => {
 	) => {
 		state.started.push(name);
 	}) as any);
-	spyOn(docker, "gpuAvailable").mockImplementation(async (image) => {
+	spyOn(docker, "gpuError").mockImplementation(async (image) => {
 		state.gpuProbes.push(image);
-		return state.gpuWorks;
+		return state.gpuErrors.shift();
 	});
 	spyOn(docker, "removeContainer").mockImplementation((async (name: string) => {
 		state.removed.push(name);
