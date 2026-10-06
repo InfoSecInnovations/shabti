@@ -312,6 +312,19 @@ wheels = [
 ]
 
 [[package]]
+name = "libsass"
+version = "0.23.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/b4/ab091585eaa77299558e3289ca206846aefc123fb320b5656ab2542c20ad/libsass-0.23.0.tar.gz", hash = "sha256:6f209955ede26684e76912caf329f4ccb57e4a043fd77fe0e7348dd9574f1880", size = 316068, upload-time = "2024-01-06T18:53:05.404Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/13/fc1bea1de880ca935137183727c7d4dd921c4128fc08b8ddc3698ba5a8a3/libsass-0.23.0-cp38-abi3-macosx_11_0_x86_64.whl", hash = "sha256:34cae047cbbfc4ffa832a61cbb110f3c95f5471c6170c842d3fed161e40814dc", size = 1086783, upload-time = "2024-01-06T19:02:38.903Z" },
+    { url = "https://files.pythonhosted.org/packages/55/2f/6af938651ff3aec0a0b00742209df1172bc297fa73531f292801693b7315/libsass-0.23.0-cp38-abi3-macosx_14_0_arm64.whl", hash = "sha256:ea97d1b45cdc2fc3590cb9d7b60f1d8915d3ce17a98c1f2d4dd47ee0d9c68ce6", size = 982759, upload-time = "2024-01-06T19:02:41.331Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/5a/eb5b62641df0459a3291fc206cf5bd669c0feed7814dded8edef4ade8512/libsass-0.23.0-cp38-abi3-manylinux_2_5_x86_64.manylinux1_x86_64.whl", hash = "sha256:4a218406d605f325d234e4678bd57126a66a88841cb95bee2caeafdc6f138306", size = 9444543, upload-time = "2024-01-06T19:02:43.191Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/fc/275783f5120970d859ae37d04b6a60c13bdec2aa4294b9dfa8a37b5c2513/libsass-0.23.0-cp38-abi3-win32.whl", hash = "sha256:31e86d92a5c7a551df844b72d83fc2b5e50abc6fbbb31e296f7bebd6489ed1b4", size = 775481, upload-time = "2024-01-06T19:02:46.05Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/20/caf3c7cf2432d85263119798c45221ddf67bdd7dae8f626d14ff8db04040/libsass-0.23.0-cp38-abi3-win_amd64.whl", hash = "sha256:a2ec85d819f353cbe807432d7275d653710d12b08ec7ef61c124a580a8352f3c", size = 872914, upload-time = "2024-01-06T19:02:47.61Z" },
+]
+
+[[package]]
 name = "linkify-it-py"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -633,7 +646,7 @@ requires-dist = [{ name = "python-keycloak", specifier = "==7.1.1" }]
 [[package]]
 name = "shabti-types"
 version = "0.1.0"
-source = { editable = "../python_packages/shabti_types" }
+source = { editable = "/app/python_packages/shabti_types" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -663,6 +676,7 @@ dependencies = [
     { name = "shabti-types" },
     { name = "shabti-util" },
     { name = "shiny" },
+    { name = "shinychat" },
     { name = "shinyswatch" },
     { name = "tqdm" },
 ]
@@ -675,6 +689,7 @@ requires-dist = [
     { name = "shabti-types", editable = "/app/python_packages/shabti_types" },
     { name = "shabti-util", editable = "/app/python_packages/shabti_util" },
     { name = "shiny", specifier = "==1.7.0" },
+    { name = "shinychat", specifier = "==0.7.2" },
     { name = "shinyswatch", specifier = "==0.12.0" },
     { name = "tqdm", specifier = "==4.70.0" },
 ]
@@ -713,16 +728,17 @@ wheels = [
 
 [[package]]
 name = "shinychat"
-version = "0.5.1"
+version = "0.7.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "htmltools" },
+    { name = "libsass" },
     { name = "pydantic" },
     { name = "shiny" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/36/03/5c11f583a9a40fcd62f1d3c3ce18cb92add0855a51f419e28daf2145d92c/shinychat-0.5.1.tar.gz", hash = "sha256:4f9658525ce4891e233bf850d60b7a622e2352e3c04e95d9edcd92706738f9e5", size = 1575615, upload-time = "2026-06-15T21:24:25.554Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/2c/709a1dac514c175ed4d286ee5efa796952ad9944b664464151adc7e62e9f/shinychat-0.7.2.tar.gz", hash = "sha256:de83aa829ef84c86f69dd9b76647d5630090264b5be977a2d2fe8ee37dbd71c0", size = 535461, upload-time = "2026-09-18T20:29:30.608Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/76/807032384028cdcdbf7058ea085a3ef6194560fcedaaadfdbb394430536e/shinychat-0.5.1-py3-none-any.whl", hash = "sha256:c61561daa282143f5cf473dab603598ac19673938a49cf7df5200771784aadd6", size = 1604319, upload-time = "2026-06-15T21:24:23.744Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/92/8976398c152b6984723abed71e315ca1b572b791cc8f05cdf1b17157e8f0/shinychat-0.7.2-py3-none-any.whl", hash = "sha256:a063b4cb789019f7dd1e897cf67f351915c00e2fc34b957a3824fcaab1c702b0", size = 554716, upload-time = "2026-09-18T20:29:29.082Z" },
 ]
 
 [[package]]

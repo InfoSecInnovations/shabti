@@ -137,7 +137,9 @@ def prompter_server(
             )
         return ui.TagList(
             ui.chat_ui(
-                id="prompter_chat", placeholder=tasks_dict[selected_task].greeting
+                id="prompter_chat",
+                placeholder=tasks_dict[selected_task].greeting,
+                show_history=False,
             ),
             ui.layout_columns(*selectors),
             ui.layout_columns(
