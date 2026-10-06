@@ -1,6 +1,6 @@
 import path from "node:path";
 import { $ } from "bun";
-import { runCompose } from "./composeProgress";
+import { composeUp } from "./composeProgress";
 
 // this compose file declares the same project, service and container name as the full stack,
 // so bringing it up recreates exactly the container docker-compose.yml would
@@ -15,4 +15,4 @@ const loaderComposeFile = path.join(
 export const stopLlamaCpp = () =>
 	$`docker container rm --force llama_cpp`.nothrow();
 
-export const startLlamaCpp = () => runCompose(loaderComposeFile, ["up", "-d"]);
+export const startLlamaCpp = () => composeUp(loaderComposeFile);

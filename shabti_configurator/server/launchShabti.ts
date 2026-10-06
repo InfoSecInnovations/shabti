@@ -1,4 +1,4 @@
-import { runCompose } from "./composeProgress";
+import { composeUp } from "./composeProgress";
 import buildImages from "./buildImages";
 import { getConnectivity } from "./connectivity";
 import getEnvs from "./getEnvs";
@@ -49,7 +49,7 @@ export default async function* (
 		]);
 	} else {
 		yield logMessage("Launching Shabti Docker Compose configuration...");
-		yield* runCompose("./docker_compose/docker-compose.yml", ["up", "-d"]);
+		yield* composeUp("./docker_compose/docker-compose.yml");
 	}
 	const envs = await getEnvs();
 	if (envs.SHABTI_SECURITY_ENABLED != "True") return;

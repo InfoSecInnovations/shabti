@@ -22,7 +22,7 @@ import { getConnectivity } from "./connectivity";
 import { requireModels } from "./listDownloadedModels";
 import ensureImages from "./ensureImages";
 import buildImages from "./buildImages";
-import { runCompose } from "./composeProgress";
+import { composeUp, runCompose } from "./composeProgress";
 import requireGpu from "./requireGpu";
 
 export default async function* (
@@ -175,7 +175,7 @@ export default async function* (
 	);
 	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
 	yield logMessage("launching LLM service...");
-	yield* runCompose(loaderComposeFile, ["up", "-d"]); // launch llama.cpp
+	yield* composeUp(loaderComposeFile); // launch llama.cpp
 	// offline, requireModels has already confirmed they're all downloaded
 	if (online) {
 		// ensure requested models are downloaded so they will be available once the install is done
@@ -184,7 +184,7 @@ export default async function* (
 	}
 	yield* runCompose(loaderComposeFile, ["down"]);
 	yield logMessage("launching Docker containers...");
-	yield* runCompose(composeFile, ["up", "-d"]);
+	yield* composeUp(composeFile);
 	if (isLocal && installVenv) {
 		// if we're running the install for automated testing we assume the venv is already configured, so we want to skip this step
 		yield logMessage(

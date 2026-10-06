@@ -1,5 +1,6 @@
 import * as humanize from "ts-humanize";
 import { type BuildStatus, type ComposeOutput, compose } from "./docker";
+import { ComposeCommandError } from "./errors";
 import logMessage from "./logMessage";
 import type { OperationUpdate, ProgressUpdate } from "./operationProtocol";
 
@@ -203,3 +204,33 @@ export const runCompose = (
 	args: string[],
 	env?: Record<string, string>,
 ) => composeProgress(compose(composeFile, args, { env }));
+
+// the NVIDIA hook's ldconfig is killed if it goes over its CPU time limit, which happens when
+// Docker Desktop trims its disk just after a container was removed. The container is left created,
+// so bringing the project up again starts it
+const UP_ATTEMPTS = 3;
+const UP_DELAY_MS = 5_000;
+
+/** brings a compose file's containers up, with its progress on the page */
+export async function* composeUp(
+	composeFile: string,
+	env?: Record<string, string>,
+): AsyncGenerator<OperationUpdate, number> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return yield* runCompose(composeFile, ["up", "-d"], env);
+		} catch (error) {
+			if (
+				attempt == UP_ATTEMPTS ||
+				!(error instanceof ComposeCommandError) ||
+				!error.stderr.includes("nvidia-container-cli")
+			)
+				throw error;
+			console.error(error.stderr);
+			yield logMessage(
+				`retrying the container launch (attempt ${attempt + 1} of ${UP_ATTEMPTS})...`,
+			);
+			await Bun.sleep(UP_DELAY_MS);
+		}
+	}
+}
