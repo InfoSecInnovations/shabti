@@ -23,11 +23,8 @@ export const InstallOptionsForm = async (props: {
 		selectedChatModels,
 	} = await resolveModelSelection();
 	const versions = await listCompatibleVersions();
-	if (
-		(!versions.length && !props.devMode) ||
-		!chatModels.length ||
-		!embeddingsModels.length
-	)
+	// a chat model is optional, without one Shabti can still search
+	if ((!versions.length && !props.devMode) || !embeddingsModels.length)
 		return <p class="error">You need to be online to install Shabti.</p>;
 	return (
 		<form action="/install" method="post" id="install_form">

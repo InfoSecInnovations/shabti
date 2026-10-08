@@ -13,7 +13,7 @@ It's difficult to precisely evaluate every single model without spending conside
 
 We used 4 bit quantizations of each chat model as this provides the best balance between hardware requirements and model response quality. The rough rule of thumb is that an 8 bit quantization requires slightly over 1GB of VRAM per Billion parameters, and a 4 bit quantization uses half of that. You can see the exact file sizes by browsing the Hugging Face repository containing the model.
 
-Bear in mind that Shabti requires both the embeddings model and at least one chat model to function, so you need sufficient hardware to host both at the same time. You may be surprised at how well Shabti works with smaller models, as the document collection system does a lot of heavy lifting!
+Bear in mind that Shabti needs to host the embeddings model and a chat model at the same time, so you need sufficient hardware for both. The chat model is optional: with no chat model, Shabti can only retrieve documents, effectively functioning as a search engine on your documents. You may be surprised at how well Shabti works with smaller models, as the document collection system does a lot of heavy lifting!
 
 For embeddings we used 8 bit quantizations as these are already very small models for the most part, and we want high precision in the retrieval results. You may also use 8 bit versions for chat models if you have the hardware to do so, see below for information on custom model configuration.
 

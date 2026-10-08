@@ -12,7 +12,6 @@ export const ModelManagementForm = async () => {
 				<ChatModelSelector
 					selectId="manage_language_model"
 					containerId="manage_default_model_selector"
-					required
 					chatModels={chatModels}
 					selectedChatModels={selectedChatModels}
 					defaultModel={selection.defaultModel}

@@ -3,7 +3,8 @@ import getModelsConfig from "./getModelsConfig";
 export interface ModelSelection {
 	chatModels: string[];
 	embeddingsModel: string;
-	defaultModel: string;
+	// undefined when there are no chat models, which leaves Shabti only able to search
+	defaultModel?: string;
 }
 
 // derives a usable model selection straight from the bundled catalogue,
@@ -14,8 +15,6 @@ export default async (): Promise<ModelSelection> => {
 	const chatModels = entries
 		.filter(([_, v]) => v.tags.includes("chat"))
 		.map(([k]) => k);
-	if (!chatModels.length)
-		throw new Error("no chat model is available in the models config");
 	const embeddingsModel = entries.find(([_, v]) =>
 		v.tags.includes("embeddings"),
 	)?.[0];
@@ -26,6 +25,6 @@ export default async (): Promise<ModelSelection> => {
 		embeddingsModel,
 		defaultModel:
 			chatModels.find((k) => shabtiModels[k].tags.includes("default")) ||
-			chatModels[0]!,
+			chatModels[0],
 	};
 };

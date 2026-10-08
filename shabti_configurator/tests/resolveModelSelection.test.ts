@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import getDefaultModelSelection from "../getDefaultModelSelection";
 import getModelsConfig from "../getModelsConfig";
 import { resolveModelSelection } from "../server/chatModelSelector";
+import writeModelsIni from "../server/writeModelsIni";
 import { resetConnectivity } from "../server/connectivity";
 import { resetDownloadedModels } from "../server/listDownloadedModels";
 import {
@@ -43,7 +45,10 @@ describe("resolveModelSelection", () => {
 		expect(resolved.connectivity).toBe("online");
 		expect([...resolved.chatModels].sort()).toEqual(tagged("chat"));
 		expect([...resolved.embeddingsModels].sort()).toEqual(tagged("embeddings"));
-		expect(resolved.selectedChatModels).toEqual(["Ling-3.0-tiny"]);
+		// there's no my-models.ini yet, so the catalogue's default is preselected
+		expect(resolved.selectedChatModels).toEqual([
+			(await getDefaultModelSelection()).defaultModel!,
+		]);
 	});
 
 	test("lists the models alphabetically", async () => {
@@ -70,6 +75,16 @@ describe("resolveModelSelection", () => {
 		expect(resolved.embeddingsModels).toEqual(["all-MiniLM-L6-v2"]);
 		// the catalogue default isn't downloaded, so the first one that is gets selected instead
 		expect(resolved.selectedChatModels).toEqual(["MiniCPM5-2B"]);
+	});
+
+	test("keeps an install without a chat model that way", async () => {
+		mockFetch(reachableHosts("https://huggingface.co"));
+		const { embeddingsModel } = await getDefaultModelSelection();
+		await writeModelsIni({ chatModels: [], embeddingsModel });
+		const resolved = await resolve();
+		expect(resolved.selection.chatModels).toEqual([]);
+		// rather than standing a chat model in for one which isn't downloaded
+		expect(resolved.selectedChatModels).toEqual([]);
 	});
 
 	test("offers nothing when offline and nothing is downloaded", async () => {

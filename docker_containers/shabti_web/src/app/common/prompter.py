@@ -106,7 +106,22 @@ def prompter_server(
     def init_models_effect():
         models_list, selected_id = init_models.result()
         chat_models.set(models_list)
-        current_model.set(selected_id)
+        if models_list:
+            current_model.set(selected_id)
+        else:
+            # without a chat model only the tasks without a prompt can run, and those only need the
+            # embeddings model: see docs/developer/PROMPTER.md
+            load_embeddings_model()
+
+    @reactive.extended_task
+    async def load_embeddings_model():
+        models = await client.get_models(tags=["embeddings"])
+        await load_models(client, models["data"][0]["id"])
+
+    @reactive.effect
+    def load_embeddings_model_effect():
+        load_embeddings_model.result()
+        llm_loaded.set(True)
 
     @reactive.extended_task
     async def persist_model_selection(model_name: str):
@@ -126,7 +141,7 @@ def prompter_server(
 
     @reactive.effect
     def init():
-        if llm_status.get() and not chat_models.get():
+        if llm_status.get() and chat_models.get() is None:
             init_models()
 
     @render.ui
@@ -147,18 +162,44 @@ def prompter_server(
             return ui.markdown("Requirements are not online, see sidebar!")
         if not tasks.get():
             return ui.markdown("Loading prompter config, please wait...")
+        if chat_models.get() == []:
+            return ui.markdown("Loading embeddings model...")
         return ui.markdown("Loading Language Model, please wait...")
 
     @render.ui
     def chat_area():
         tasks_dict = tasks.get()
-        task_list = list(tasks_dict)
-        selected_task = task_list[0] if "question" not in tasks_dict else "question"
-        selectors = [collection_selector_ui("collection_selector")]
         # a task without a prompt only searches, so there's no response for these to shape:
         # see docs/developer/PROMPTER.md
         promptless = [name for name, task in tasks_dict.items() if not task.prompt]
+        # and without a chat model those are the only tasks which can run
+        task_list = list(tasks_dict) if chat_models.get() else promptless
+        selected_task = task_list[0] if "question" not in task_list else "question"
+        selectors = [collection_selector_ui("collection_selector")]
         shapes_response = f"!{json.dumps(promptless)}.includes(input.task_select)"
+        response_selectors = (
+            [
+                ui.panel_conditional(
+                    shapes_response,
+                    ui.input_select(
+                        id="persona_select",
+                        label="Persona",
+                        choices=["None", *personas.get().keys()],
+                    ),
+                ),
+                ui.panel_conditional(
+                    shapes_response,
+                    ui.input_selectize(
+                        id="enhancers_select",
+                        label="Enhancers",
+                        choices=list(enhancers.get()),
+                        multiple=True,
+                    ),
+                ),
+            ]
+            if chat_models.get()
+            else []
+        )
         # we only display the model selector if more than one model is available
         if len(chat_models.get()) > 1:
             selectors.append(
@@ -187,23 +228,7 @@ def prompter_server(
                     choices=task_list,
                     selected=selected_task,
                 ),
-                ui.panel_conditional(
-                    shapes_response,
-                    ui.input_select(
-                        id="persona_select",
-                        label="Persona",
-                        choices=["None", *personas.get().keys()],
-                    ),
-                ),
-                ui.panel_conditional(
-                    shapes_response,
-                    ui.input_selectize(
-                        id="enhancers_select",
-                        label="Enhancers",
-                        choices=list(enhancers.get()),
-                        multiple=True,
-                    ),
-                ),
+                *response_selectors,
             ),
         )
 
@@ -279,13 +304,16 @@ def prompter_server(
 
     @chat.on_user_submit
     async def on_chat_submit(user_input: str, attachments: list[Attachment]):
+        # the persona and enhancers selectors aren't rendered without a chat model, and reading an
+        # input which doesn't exist would abort the submit
+        has_chat_model = bool(chat_models.get())
         await chat.append_message_stream(
             stream_response(
                 selected_collection.get(),
                 user_input,
                 input.task_select(),
-                input.persona_select(),
-                input.enhancers_select(),
+                input.persona_select() if has_chat_model else None,
+                input.enhancers_select() if has_chat_model else None,
                 attachments_file(attachments) if attachments else None,
             )
         )

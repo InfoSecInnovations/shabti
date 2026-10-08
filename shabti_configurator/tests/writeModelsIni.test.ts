@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import getDefaultModelSelection from "../getDefaultModelSelection";
+import getDefaultModelSelection, {
+	type ModelSelection,
+} from "../getDefaultModelSelection";
 import getModelsConfig from "../getModelsConfig";
 import readModelsIni from "../server/readModelsIni";
 import writeModelsIni, {
@@ -38,10 +40,21 @@ const SELECTION = {
 	defaultModel: "chat",
 };
 
-const build = (models: Record<string, any>, selection = SELECTION) =>
-	buildModelsConfig(selection, catalogue(models));
+const build = (
+	models: Record<string, any>,
+	selection: ModelSelection = SELECTION,
+) => buildModelsConfig(selection, catalogue(models));
 
 describe("the preset sections llama.cpp reads", () => {
+	test("need no chat model", () => {
+		// without one Shabti can still search, which only needs the embeddings model
+		const { sections } = build(
+			{ chat: CHAT, embed: EMBED },
+			{ chatModels: [], embeddingsModel: "embed" },
+		);
+		expect(Object.keys(sections)).toEqual(["*", "embed"]);
+	});
+
 	test("carry nothing but llama.cpp's own options", () => {
 		const { sections } = build({ chat: CHAT, embed: EMBED });
 		// an unrecognised key is fatal to llama.cpp's preset loader rather than ignored, so one
@@ -225,12 +238,15 @@ describe("the files", () => {
 		);
 	});
 
-	const writeToTemp = async () => {
+	const writeToTemp = async (selection?: ModelSelection) => {
 		const baseDir = await mkdtemp(path.join(tmpdir(), "shabti-models-"));
 		dirs.push(baseDir);
 		return {
 			baseDir,
-			paths: await writeModelsIni(await getDefaultModelSelection(), baseDir),
+			paths: await writeModelsIni(
+				selection || (await getDefaultModelSelection()),
+				baseDir,
+			),
 		};
 	};
 
@@ -243,6 +259,17 @@ describe("the files", () => {
 		);
 	});
 
+	test("read back without a chat model", async () => {
+		// a search only install, which mustn't be mistaken for nothing being configured and have
+		// the catalogue's default chat model put back in its place
+		const { embeddingsModel } = await getDefaultModelSelection();
+		const { baseDir } = await writeToTemp({ chatModels: [], embeddingsModel });
+		expect(await readModelsIni(baseDir)).toEqual({
+			chatModels: [],
+			embeddingsModel,
+		});
+	});
+
 	test("read back under the catalogue's names after a section is renamed", async () => {
 		const baseDir = await mkdtemp(path.join(tmpdir(), "shabti-models-"));
 		dirs.push(baseDir);
@@ -253,7 +280,7 @@ describe("the files", () => {
 		await Bun.write(
 			getModelsIniPath(baseDir),
 			`[old-chat]
-hf = ${models[defaultModel].hf}
+hf = ${models[defaultModel!].hf}
 tags = chat, default
 
 ` +

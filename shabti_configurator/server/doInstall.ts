@@ -106,17 +106,12 @@ export default async function* (
 		envs.SHABTI_BASE_SERVICE = "shabti";
 	}
 	const defaults = await getDefaultModelSelection();
-	const selectedChatModels = options
-		.getAll("language_model")
-		.map((v) => v.toString());
-	const chatModels = selectedChatModels.length
-		? selectedChatModels
-		: defaults.chatModels;
+	// no chat model is a valid choice, it leaves Shabti only able to search
+	const chatModels = options.getAll("language_model").map((v) => v.toString());
 	const embeddingsModel =
 		options.get("embeddings_model")?.toString() || defaults.embeddingsModel;
 	const defaultModel =
-		options.get("default_model")?.toString() ||
-		(selectedChatModels.length ? chatModels[0]! : defaults.defaultModel);
+		options.get("default_model")?.toString() || chatModels[0];
 	yield logMessage("checking the selected models are available...");
 	const online = await requireModels([...chatModels, embeddingsModel]);
 	const composeFile = isLocal

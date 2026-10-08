@@ -99,9 +99,13 @@ const wireDefaultModelSelector = (selectId: string, containerId: string) => {
 	const container = document.getElementById(containerId);
 	if (!chatModelSelector || !container) return; // the section this belongs to isn't on the page
 	const selectorId = `${containerId}_select`;
+	const noChatModelNote = document.getElementById(
+		`${containerId}_no_chat_model`,
+	);
 	let vnode: VNode = toVNode(container);
 	chatModelSelector.onchange = () => {
 		const selected = [...chatModelSelector.selectedOptions].map((s) => s.value);
+		noChatModelNote?.classList.toggle("hidden", selected.length > 0);
 		// keep the current choice if it's still selected, otherwise the browser would silently
 		// fall back to the first option
 		const previous = (

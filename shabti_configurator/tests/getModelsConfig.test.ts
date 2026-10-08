@@ -18,10 +18,16 @@ afterEach(async () => {
 });
 
 // read off the shipped file, so this doesn't have to change whenever the catalogue does
-const BUILT_IN = Object.keys(
-	ini.parse(await file(shabtiModelsFile).text()) as Record<string, unknown>,
-);
-const SHIPPED_DEFAULT = "Ling-3.0-tiny";
+const SHIPPED = ini.parse(await file(shabtiModelsFile).text()) as Record<
+	string,
+	any
+>;
+const BUILT_IN = Object.keys(SHIPPED);
+const SHIPPED_DEFAULT = BUILT_IN.find((k) =>
+	String(SHIPPED[k].tags)
+		.split(",")
+		.some((tag) => tag.trim() == "default"),
+)!;
 
 describe("getModelsConfig", () => {
 	test("is the shipped catalogue without a custom file", async () => {

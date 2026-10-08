@@ -40,7 +40,6 @@ export default async (
 	const chatModels = entries
 		.filter(([_, v]) => v.includes("chat"))
 		.map(([k]) => k);
-	if (!chatModels.length) return undefined;
 	const embeddingsModel = entries.find(([_, v]) =>
 		v.includes("embeddings"),
 	)?.[0];
@@ -49,6 +48,6 @@ export default async (
 		chatModels,
 		embeddingsModel,
 		defaultModel:
-			chatModels.find((k) => tags[k].includes("default")) || chatModels[0]!,
+			chatModels.find((k) => tags[k].includes("default")) || chatModels[0],
 	};
 };

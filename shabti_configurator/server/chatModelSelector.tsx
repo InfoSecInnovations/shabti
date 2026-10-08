@@ -13,7 +13,7 @@ export const resolveModelSelection = async () => {
 	const defaults = await getDefaultModelSelection();
 	const selection = configured || {
 		...defaults,
-		chatModels: [defaults.defaultModel],
+		chatModels: defaults.defaultModel ? [defaults.defaultModel] : [],
 	};
 	const modelsTagged = (tag: string) =>
 		Object.entries(shabtiModels)
@@ -26,8 +26,13 @@ export const resolveModelSelection = async () => {
 	const selectedChatModels = chatModels.filter((model) =>
 		selection.chatModels.includes(model),
 	);
-	// the preselected models may not be downloaded, but something has to be selected
-	if (!selectedChatModels.length && chatModels.length)
+	// the preselected models may not be downloaded, so something else is selected in their place,
+	// unless there were none to begin with, which leaves Shabti only able to search
+	if (
+		!selectedChatModels.length &&
+		selection.chatModels.length &&
+		chatModels.length
+	)
 		selectedChatModels.push(chatModels[0]!);
 	return {
 		shabtiModels,
@@ -43,24 +48,19 @@ export const resolveModelSelection = async () => {
 // selector lives in its own container which the client patches as the selection changes.
 // The ids are parameters because both the install form and the model management form have one
 // and they have to be unique across the page, and the container's inner select is always
-// `${containerId}_select`, which wireDefaultModelSelector in the client bundle relies on.
+// `${containerId}_select`, which wireDefaultModelSelector in the client bundle relies on, as it
+// does on `${containerId}_no_chat_model` for the note shown when nothing is selected.
 export const ChatModelSelector = (props: {
 	selectId: string;
 	containerId: string;
-	required?: boolean;
 	chatModels: string[];
 	selectedChatModels: string[];
-	defaultModel: string;
+	defaultModel?: string;
 }) => (
 	<>
 		<p>
 			<label for={props.selectId}>Select Chat Models</label>
-			<select
-				name="language_model"
-				id={props.selectId}
-				multiple
-				required={props.required}
-			>
+			<select name="language_model" id={props.selectId} multiple>
 				{props.chatModels.map((model) => (
 					<option
 						value={model}
@@ -75,6 +75,15 @@ export const ChatModelSelector = (props: {
 			<small>
 				The language models which will be available to users when querying
 				Shabti.
+			</small>
+		</p>
+		<p
+			id={`${props.containerId}_no_chat_model`}
+			class={props.selectedChatModels.length ? "hidden" : undefined}
+		>
+			<small>
+				With no chat model, Shabti can only retrieve documents, effectively
+				functioning as a search engine on your documents.
 			</small>
 		</p>
 		<div id={props.containerId}>
