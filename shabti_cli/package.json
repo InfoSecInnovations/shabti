@@ -15,7 +15,6 @@
 		"@infosecinnovations/shabti-api-client": "workspace:*",
 		"cli-progress": "3.12.0",
 		"commander": "15.0.0",
-		"dotenv": "17.4.2",
 		"openid-client": "6.8.4"
 	},
 	"scripts": {

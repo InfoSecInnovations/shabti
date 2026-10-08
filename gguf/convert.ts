@@ -18,8 +18,8 @@
 
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { parseEnv } from "node:util";
 import { Command } from "commander";
-import { config } from "dotenv";
 import { parseImage } from "../dependencies/docker";
 
 const COMPOSE = path.join(
@@ -83,7 +83,7 @@ const docker = async (workDir: string, args: string[], capture = false) => {
 		],
 		{
 			// passed explicitly because Bun hands children the environment it started with, which leaves out
-			// the HF_TOKEN that dotenv loaded afterwards
+			// the HF_TOKEN loaded from gguf/.env afterwards
 			env: process.env,
 			stdout: capture ? "pipe" : "inherit",
 			stderr: capture ? "pipe" : "inherit",
@@ -362,7 +362,11 @@ export const convert = async ({
 };
 
 if (import.meta.main) {
-	config({ path: path.join(import.meta.dir, ".env"), quiet: true });
+	const envFile = Bun.file(path.join(import.meta.dir, ".env"));
+	// anything already set in the environment wins over the file
+	if (await envFile.exists())
+		for (const [key, value] of Object.entries(parseEnv(await envFile.text())))
+			process.env[key] ??= value;
 	const command = new Command()
 		.argument("<source>", "the HuggingFace model to convert, as owner/name")
 		.option(

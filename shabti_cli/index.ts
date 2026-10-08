@@ -1,5 +1,5 @@
 import path from "node:path";
-import * as dotenv from "dotenv";
+import { parseEnv } from "node:util";
 import buildProgram from "./buildProgram";
 
 // we set this to 'executable' when building the standalone
@@ -9,7 +9,11 @@ const envPath =
 	environment == "executable"
 		? ["docker_compose", ".env"]
 		: ["..", "shabti_configurator", "docker_compose", ".env"];
-dotenv.config({ path: path.resolve(path.join(...envPath)) });
+const envFile = Bun.file(path.resolve(path.join(...envPath)));
+// anything already set in the environment wins over the file
+if (await envFile.exists())
+	for (const [key, value] of Object.entries(parseEnv(await envFile.text())))
+		process.env[key] ??= value;
 
 const program = await buildProgram();
 await program.parseAsync(Bun.argv);
