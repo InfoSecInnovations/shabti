@@ -20,6 +20,12 @@ from ...src.app.functionality.load_prompter_config import load_prompter_config
 TASKS = sorted(load_prompter_config("tasks"))
 PERSONAS = sorted(load_prompter_config("personas"))
 ENHANCERS = sorted(load_prompter_config("enhancers"))
+# the tasks that only find the sources, never generating a response: see docs/developer/PROMPTER.md
+PROMPTLESS = sorted(
+    task
+    for task, config in load_prompter_config("tasks").items()
+    if not config.get("prompt")
+)
 
 
 def prompt_info(**overrides):
@@ -46,6 +52,16 @@ def loaded_chat_model(monkeypatch):
 
 
 @pytest.fixture
+def no_chat_model(monkeypatch):
+    async def get_loaded_chat_model():
+        raise ModelNotFoundError(message="No chat model is loaded")
+
+    monkeypatch.setattr(
+        validator_module, "get_loaded_chat_model", get_loaded_chat_model
+    )
+
+
+@pytest.fixture
 def config_reads(monkeypatch):
     """Which config directories were read, in order."""
     reads = []
@@ -61,6 +77,12 @@ def config_reads(monkeypatch):
 def test_the_config_directories_are_not_empty():
     # every assertion below is parametrized over these, so an empty one would quietly test nothing
     assert TASKS and PERSONAS and ENHANCERS
+
+
+def test_there_is_a_task_without_a_prompt():
+    # `search` is one by design, and the tests below parametrized over these would otherwise
+    # quietly stop covering the path that never reaches the chat model
+    assert PROMPTLESS
 
 
 @pytest.mark.parametrize("task", TASKS)
@@ -140,29 +162,30 @@ async def test_a_full_prompt_reads_each_directory_once(loaded_chat_model, config
     assert config_reads == ["tasks", "personas", "enhancers"]
 
 
-async def test_no_loaded_chat_model_is_rejected(monkeypatch):
-    async def get_loaded_chat_model():
-        raise ModelNotFoundError(message="No chat model is loaded")
-
-    monkeypatch.setattr(
-        validator_module, "get_loaded_chat_model", get_loaded_chat_model
-    )
+async def test_no_loaded_chat_model_is_rejected(no_chat_model):
     with pytest.raises(HTTPException) as raised:
         await PromptInfoValidator()(prompt_info())
     assert raised.value.status_code == 400
     assert raised.value.detail == "No chat model is loaded"
 
 
-async def test_the_model_is_checked_before_the_prompt_config(monkeypatch):
-    # with nothing to run the prompt on, the task being wrong too is beside the point
-    async def get_loaded_chat_model():
-        raise ModelNotFoundError(message="No chat model is loaded")
-
-    monkeypatch.setattr(
-        validator_module, "get_loaded_chat_model", get_loaded_chat_model
-    )
+async def test_an_unknown_task_is_reported_before_the_missing_model(no_chat_model):
+    # whether a chat model is needed at all depends on the task, so the task is checked first
     with pytest.raises(HTTPException) as raised:
         await PromptInfoValidator()(prompt_info(task="not-a-task"))
+    assert raised.value.detail == "Requested task not found"
+
+
+@pytest.mark.parametrize("task", PROMPTLESS)
+async def test_a_task_without_a_prompt_needs_no_chat_model(no_chat_model, task):
+    # it only finds the sources, which takes the embeddings model and nothing else
+    await PromptInfoValidator()(prompt_info(task=task))
+
+
+@pytest.mark.parametrize("task", sorted(set(TASKS) - set(PROMPTLESS)))
+async def test_a_task_with_a_prompt_needs_a_chat_model(no_chat_model, task):
+    with pytest.raises(HTTPException) as raised:
+        await PromptInfoValidator()(prompt_info(task=task))
     assert raised.value.detail == "No chat model is loaded"
 
 

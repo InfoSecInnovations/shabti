@@ -1,1 +1,3 @@
+# No `prompt` on purpose: search returns the documents relevant to the query and never generates a
+# response, so it needs no chat model. See docs/developer/PROMPTER.md
 greeting = What are you looking for?

@@ -1,10 +1,10 @@
 import aiofiles
+from chatlas.types import ContentThinkingDelta
 from shabti_types import PromptInfo, PromptChunk, PromptSource, DocumentInfo, PageInfo
 from .prompting import stream_response
 from .opensearch_prompting import get_context_from_opensearch
 from .opensearch import get_temp_file
 from .load_prompter_config import load_prompter_config
-import json
 from ..shabti_logging import log_user_action, logging_enabled
 from .document_collections import get_collection_info
 from .models import get_loaded_chat_model
@@ -13,29 +13,30 @@ from .settings import setting
 
 async def run_prompt(token: None | str, prompt_info: PromptInfo):
     tasks = load_prompter_config("tasks")
-    task_prompt = tasks[prompt_info.task]["prompt"]
+    # a task without a prompt (`search`) only finds the sources, and never reaches the chat model:
+    # see docs/developer/PROMPTER.md
+    task_prompt = tasks[prompt_info.task].get("prompt")
 
-    if prompt_info.persona:
-        personas = load_prompter_config("personas")
-        persona_prompt = personas[prompt_info.persona]["prompt"]
+    persona_prompt = None
+    enhancer_prompts = None
+    source_file_contents = None
 
-    else:
-        persona_prompt = None
+    # the persona, enhancers and source file only shape what the chat model writes
+    if task_prompt:
+        if prompt_info.persona:
+            personas = load_prompter_config("personas")
+            persona_prompt = personas[prompt_info.persona]["prompt"]
 
-    if prompt_info.enhancers:
-        enhancers = load_prompter_config("enhancers")
-        enhancer_prompts = []
-        for enhancer in prompt_info.enhancers:
-            enhancer_prompts.append(enhancers[enhancer]["prompt"])
-    else:
-        enhancer_prompts = None
+        if prompt_info.enhancers:
+            enhancers = load_prompter_config("enhancers")
+            enhancer_prompts = []
+            for enhancer in prompt_info.enhancers:
+                enhancer_prompts.append(enhancers[enhancer]["prompt"])
 
-    if prompt_info.file_id:
-        file_path = await get_temp_file(prompt_info.file_id)
-        async with aiofiles.open(file_path) as f:
-            source_file_contents = await f.read()
-    else:
-        source_file_contents = None
+        if prompt_info.file_id:
+            file_path = await get_temp_file(prompt_info.file_id)
+            async with aiofiles.open(file_path) as f:
+                source_file_contents = await f.read()
 
     context = await get_context_from_opensearch(
         prompt_info.collection_id,
@@ -50,54 +51,20 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
         # TODO: log the no sources response
         return
 
-    response = ""
-    for source in context["sources"]:
-        yield PromptChunk(
-            source=PromptSource(
-                document_metadata=DocumentInfo(**source["doc_metadata"]),
-                page_metadata=PageInfo(**source["page_metadata"]),
-                text=source["text"],
-            )
-        )
-    model_name = await get_loaded_chat_model()
-    async for x in stream_response(
-        model_name=model_name,
-        context=context["context"],
-        task_prompt=task_prompt,
-        user_input=prompt_info.user_input,
-        persona_prompt=persona_prompt,
-        source_file_contents=source_file_contents,
-    ):
-        try:
-            obj = json.loads(x)
-            # llama.cpp opens a stream with a role-announcement delta whose `content` is an
-            # explicit null, so the key being present says nothing about there being text to
-            # forward. The final delta, carrying only `finish_reason`, is empty for the same reason
-            content = obj.get("choices", [{}])[0].get("delta", {}).get("content")
-            if content:
-                yield PromptChunk(response=content)
-                if logging_enabled():
-                    response += content
-        except json.decoder.JSONDecodeError as e:
-            # the sentinel that closes an OpenAI style stream, and the only line in it that was
-            # never JSON. `break` rather than `return`: the audit entry below is the last thing a
-            # prompt does, and returning here left it unwritten for every prompt that ran to the end
-            if x.startswith("[DONE]"):
-                break
-            raise e
-
-    if logging_enabled():
+    async def log_prompt(response: str | None):
         prompt = {
-            "response": response,
             "sources": context["sources"],
             "input": prompt_info.user_input,
             "task": prompt_info.task,
         }
-        if prompt_info.persona:
+        # a search has no response, as nothing was generated
+        if response is not None:
+            prompt["response"] = response
+        if prompt_info.persona and task_prompt:
             prompt["persona"] = prompt_info.persona
-        if prompt_info.enhancers:
+        if prompt_info.enhancers and task_prompt:
             prompt["enhancers"] = prompt_info.enhancers
-        if prompt_info.file_id:
+        if prompt_info.file_id and task_prompt:
             prompt["input_file"] = {
                 "file_id": prompt_info.file_id,
                 "contents": source_file_contents,
@@ -111,3 +78,40 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
             ).model_dump(),
             prompt=prompt,
         )
+
+    for source in context["sources"]:
+        yield PromptChunk(
+            source=PromptSource(
+                document_metadata=DocumentInfo(**source["doc_metadata"]),
+                page_metadata=PageInfo(**source["page_metadata"]),
+                text=source["text"],
+            )
+        )
+
+    if not task_prompt:
+        if logging_enabled():
+            await log_prompt(None)
+        return
+
+    response = ""
+    model_name = await get_loaded_chat_model()
+    async for x in stream_response(
+        model_name=model_name,
+        context=context["context"],
+        task_prompt=task_prompt,
+        user_input=prompt_info.user_input,
+        persona_prompt=persona_prompt,
+        enhancer_prompts=enhancer_prompts,
+        source_file_contents=source_file_contents,
+    ):
+        if isinstance(x, ContentThinkingDelta):
+            if x.thinking:
+                yield PromptChunk(thinking=x.thinking)
+        # nothing else is expected: no tools are registered, so the stream is only ever text
+        elif isinstance(x, str) and x:
+            yield PromptChunk(response=x)
+            if logging_enabled():
+                response += x
+
+    if logging_enabled():
+        await log_prompt(response)

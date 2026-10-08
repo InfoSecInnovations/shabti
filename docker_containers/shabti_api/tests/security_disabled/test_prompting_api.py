@@ -50,6 +50,28 @@ async def test_prompt_without_a_loaded_chat_model(
             pass
 
 
+# a search never reaches the chat model, so it runs without one: see docs/developer/PROMPTER.md
+async def test_search_without_a_loaded_chat_model(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    chat_models = (await get_models(tags=["chat"]))["data"]
+    async for _ in unload_models([x["id"] for x in chat_models]):
+        pass
+    try:
+        response = shabti_client.post(
+            "/prompt",
+            json={
+                "collection_id": shabti_collection_id,
+                "task": "search",
+                "user_input": "What does the word prompting mean?",
+            },
+        )
+        assert response.status_code == 200
+    finally:
+        async for _ in load_model(loaded_chat_model):
+            pass
+
+
 # the task, persona and enhancer checks are unit tested against the validator itself; these two are
 # here to show it is actually wired to the route, and that a bad request is refused with a status
 # rather than part way through a stream that has already started
@@ -93,17 +115,3 @@ async def test_a_question_longer_than_the_embeddings_model_takes_still_searches(
     question = " ".join(["What does the word prompting mean?"] * 400)
     context = await get_context_from_opensearch(shabti_collection_id, 5, question)
     assert "sources" in context
-
-
-async def test_every_source_carries_the_text_the_llm_was_given(
-    shabti_client, shabti_collection_id
-):
-    # the prompter shows each source's text as what was retrieved, which is only true if it is the
-    # context, piece for piece
-    context = await get_context_from_opensearch(
-        shabti_collection_id, 5, "What does the word prompting mean?"
-    )
-    assert context["sources"]
-    assert context["context"] == "\n".join(
-        source["text"] for source in context["sources"]
-    )

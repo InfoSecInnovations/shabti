@@ -1,17 +1,15 @@
 """What a prompt makes of the LLM's stream, chunk by chunk.
 
-No OpenSearch and no llama.cpp: the retrieval result, the loaded model, the SSE stream and the
-audit call are all stubbed on the module under test, so every test here is a statement about the
-parsing between them. The prompter config is read for real, as in `test_prompt_info_validator`.
+No OpenSearch and no llama.cpp: the retrieval result, the loaded model, the LLM stream and the
+audit call are all stubbed on the module under test, so every test here is a statement about what
+happens between them. The prompter config is read for real, as in `test_prompt_info_validator`.
 
-The stubbed stream yields exactly what `prompting.stream_response` yields - a raw SSE data line
-with a trailing newline - because that trailing newline is why the `[DONE]` sentinel is matched
-with `startswith` rather than `==`.
+The stubbed stream yields what `prompting.stream_response` yields - chatlas's `content="all"`
+stream, which is text as plain strings and reasoning as `ContentThinkingDelta`.
 """
 
-import json
-
 import pytest
+from chatlas.types import ContentThinkingDelta
 from shabti_types import CollectionInfo, PromptInfo
 
 from ...src.app.functionality import run_prompt as run_prompt_module
@@ -22,24 +20,20 @@ TASK = "question"
 # read rather than named, so renaming one in the config does not fail a test about streaming
 PERSONA = sorted(load_prompter_config("personas"))[0]
 ENHANCER = sorted(load_prompter_config("enhancers"))[0]
+# a task that only finds the sources, never generating a response: see docs/developer/PROMPTER.md
+SEARCH = sorted(
+    task
+    for task, config in load_prompter_config("tasks").items()
+    if not config.get("prompt")
+)[0]
 NO_SOURCES = (
     "No sources were found matching your query. Please refine your request to closer match the "
     "data in the database or ingest more data."
 )
 
 
-def chunk(**delta):
-    """One `chat.completion.chunk`, as llama.cpp writes it."""
-    return json.dumps(
-        {"choices": [{"finish_reason": None, "index": 0, "delta": delta}]}
-    )
-
-
-# llama.cpp opens every stream with this: the key is there, the value is not. Taken from a real
-# b10630 response, and the reason a prompt used to die on its first chunk
-ROLE = chunk(role="assistant", content=None)
-FINISH = json.dumps({"choices": [{"finish_reason": "stop", "index": 0, "delta": {}}]})
-DONE = "[DONE]"
+def thought(text):
+    return ContentThinkingDelta(thinking=text)
 
 
 def source(document_id, page_number):
@@ -82,6 +76,10 @@ def sources(chunks):
     return [chunk.source for chunk in chunks if chunk.source is not None]
 
 
+def thinking(chunks):
+    return [chunk.thinking for chunk in chunks if chunk.thinking is not None]
+
+
 @pytest.fixture
 def logging_on(monkeypatch):
     monkeypatch.setenv("SHABTI_LOGGING_ENABLED", "True")
@@ -118,14 +116,19 @@ def chat_model(monkeypatch):
 
 @pytest.fixture
 def llm(monkeypatch):
-    """`llm(line, line, ...)` is the SSE stream the prompt will be parsing."""
+    """`llm(item, item, ...)` is the stream the prompt will be reading. Returns the arguments the
+    prompt asked the LLM with, filled in once the prompt has run."""
 
-    def stream(*lines):
+    def stream(*items):
+        asked = {}
+
         async def stream_response(**kwargs):
-            for line in lines:
-                yield f"{line}\n"
+            asked.update(kwargs)
+            for item in items:
+                yield item
 
         monkeypatch.setattr(run_prompt_module, "stream_response", stream_response)
+        return asked
 
     return stream
 
@@ -148,49 +151,38 @@ def audit(monkeypatch):
     return entries
 
 
-@pytest.mark.parametrize("enabled", ["True", "False"])
-async def test_the_opening_null_content_delta_is_not_a_response(
-    monkeypatch, context, chat_model, audit, llm, enabled
-):
-    # the regression: `"content" in delta` is a membership test, so the null passed it and
-    # `response += None` took out the whole stream - but only with the audit log accumulating,
-    # which is why both settings are checked
-    monkeypatch.setenv("SHABTI_LOGGING_ENABLED", enabled)
-    llm(ROLE, chunk(content="Hello"), chunk(content=" world"), FINISH, DONE)
-    assert responses(await run()) == ["Hello", " world"]
-
-
-async def test_the_finish_delta_is_not_a_response(context, chat_model, audit, llm):
-    # the last chunk carries a `finish_reason` and an empty delta, and nothing to show a user
-    llm(chunk(content="Hello"), FINISH, DONE)
+async def test_an_empty_string_is_not_a_response(context, chat_model, audit, llm):
+    llm("", "Hello")
     assert responses(await run()) == ["Hello"]
 
 
-async def test_an_empty_content_delta_is_not_a_response(
-    context, chat_model, audit, llm
+async def test_thinking_is_forwarded_apart_from_the_response(
+    logging_on, context, chat_model, audit, llm
 ):
-    llm(chunk(content=""), chunk(content="Hello"), DONE)
-    assert responses(await run()) == ["Hello"]
+    # the UI shows reasoning in its own panel, and the audit log holds only what was answered
+    llm(thought("Let me"), thought(" see"), thought(""), "Hello")
+    chunks = await run()
+    assert thinking(chunks) == ["Let me", " see"]
+    assert responses(chunks) == ["Hello"]
+    assert audit[0]["prompt"]["response"] == "Hello"
 
 
-async def test_done_ends_the_stream(context, chat_model, audit, llm):
-    llm(chunk(content="Hello"), DONE, chunk(content=" world"))
-    assert responses(await run()) == ["Hello"]
-
-
-async def test_a_line_that_is_neither_a_chunk_nor_done_is_raised(
-    context, chat_model, audit, llm
-):
-    # an LLM answering a stream with an error body is worth failing on, not silently dropping
-    llm(chunk(content="Hello"), "<html>502 Bad Gateway</html>")
-    with pytest.raises(json.decoder.JSONDecodeError):
-        await run()
+async def test_persona_and_enhancers_reach_the_llm(context, chat_model, audit, llm):
+    # the enhancers were once looked up, logged, and never handed on
+    asked = llm("Hello")
+    await run(persona=PERSONA, enhancers=[ENHANCER])
+    assert (
+        asked["persona_prompt"] == load_prompter_config("personas")[PERSONA]["prompt"]
+    )
+    assert asked["enhancer_prompts"] == [
+        load_prompter_config("enhancers")[ENHANCER]["prompt"]
+    ]
 
 
 async def test_every_source_comes_before_the_response(context, chat_model, audit, llm):
     # the UI renders the references above the answer, and gets them in the order they arrive
     context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
-    llm(ROLE, chunk(content="Hello"), DONE)
+    llm("Hello")
     chunks = await run()
     assert [chunk.source is not None for chunk in chunks] == [True, True, False]
     found = sources(chunks)
@@ -203,7 +195,7 @@ async def test_a_source_carries_the_chunk_it_was_cited_for(
 ):
     # the page only says where to look; the chunk is what the LLM was actually given
     context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
-    llm(chunk(content="Hello"), DONE)
+    llm("Hello")
     found = sources(await run())
     assert [item.text for item in found] == [
         "doc-1 page 1 says something",
@@ -228,9 +220,8 @@ async def test_no_sources_says_so_without_reaching_the_llm(
 async def test_the_audit_entry_holds_the_response_the_user_saw(
     logging_on, context, chat_model, audit, llm
 ):
-    # the entry is written after the stream ends, so a `[DONE]` that returned rather than broke
-    # left every completed prompt unlogged
-    llm(ROLE, chunk(content="Hello"), chunk(content=" world"), FINISH, DONE)
+    # the entry is written after the stream ends, so it holds every piece of the response
+    llm("Hello", " world")
     await run()
     assert len(audit) == 1
     entry = audit[0]
@@ -248,7 +239,7 @@ async def test_the_audit_entry_holds_the_response_the_user_saw(
 async def test_the_audit_entry_records_what_shaped_the_prompt(
     logging_on, context, chat_model, audit, llm
 ):
-    llm(chunk(content="Hello"), DONE)
+    llm("Hello")
     await run(persona=PERSONA, enhancers=[ENHANCER])
     assert audit[0]["prompt"]["persona"] == PERSONA
     assert audit[0]["prompt"]["enhancers"] == [ENHANCER]
@@ -257,6 +248,62 @@ async def test_the_audit_entry_records_what_shaped_the_prompt(
 async def test_nothing_is_logged_when_logging_is_off(
     logging_off, context, chat_model, audit, llm
 ):
-    llm(ROLE, chunk(content="Hello"), DONE)
+    llm("Hello")
     assert responses(await run()) == ["Hello"]
     assert audit == []
+
+
+@pytest.fixture
+def no_llm(monkeypatch):
+    """Any attempt to reach the chat model fails the test."""
+
+    async def get_loaded_chat_model():
+        raise AssertionError("a search looked for a chat model")
+
+    def stream_response(**kwargs):
+        raise AssertionError("a search asked the LLM to answer")
+
+    monkeypatch.setattr(
+        run_prompt_module, "get_loaded_chat_model", get_loaded_chat_model
+    )
+    monkeypatch.setattr(run_prompt_module, "stream_response", stream_response)
+
+
+async def test_a_search_returns_only_the_sources(context, no_llm, audit):
+    context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
+    chunks = await run(task=SEARCH)
+    assert [chunk.source is not None for chunk in chunks] == [True, True]
+    assert [item.document_metadata.document_id for item in sources(chunks)] == [
+        "doc-1",
+        "doc-2",
+    ]
+
+
+async def test_a_search_is_audited_without_a_response(
+    logging_on, context, no_llm, audit
+):
+    # nothing was generated, so there is no response to record, not an empty one
+    await run(task=SEARCH)
+    assert audit[0]["prompt"] == {
+        "sources": context["sources"],
+        "input": "what is in this collection?",
+        "task": SEARCH,
+    }
+
+
+async def test_a_search_ignores_what_only_shapes_a_response(
+    monkeypatch, logging_on, context, no_llm, audit
+):
+    # a persona or enhancers sent along with a search have nothing to shape, so they are neither
+    # loaded nor recorded as if they had been used
+    reads = []
+
+    def load(directory):
+        reads.append(directory)
+        return load_prompter_config(directory)
+
+    monkeypatch.setattr(run_prompt_module, "load_prompter_config", load)
+    await run(task=SEARCH, persona=PERSONA, enhancers=[ENHANCER])
+    assert reads == ["tasks"]
+    assert "persona" not in audit[0]["prompt"]
+    assert "enhancers" not in audit[0]["prompt"]

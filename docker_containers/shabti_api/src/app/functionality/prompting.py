@@ -1,20 +1,12 @@
 import os
-import httpx
-from httpx_sse import aconnect_sse
+from chatlas import ChatOpenAICompletions
 
 
 def host():
     return os.getenv("LLM_HOST") or "localhost"
 
 
-def prepare_prompt(
-    context,
-    task_prompt,
-    user_input,
-    persona_prompt=None,
-    enhancer_prompts=None,
-    source_file_contents=None,
-):
+def system_prompt(task_prompt, persona_prompt=None, enhancer_prompts=None):
     prompt = task_prompt
 
     if persona_prompt:
@@ -24,7 +16,11 @@ def prepare_prompt(
         for enhancer_prompt in enhancer_prompts:
             prompt = prompt + "\n\n" + enhancer_prompt
 
-    prompt = prompt + "\n\nContext: " + context + "\n\nUser input: " + user_input
+    return prompt
+
+
+def user_turn(context, user_input, source_file_contents=None):
+    prompt = "Context: " + context + "\n\nUser input: " + user_input
 
     if source_file_contents:
         prompt = prompt + "\n\nSource file: " + source_file_contents
@@ -41,26 +37,16 @@ async def stream_response(
     enhancer_prompts=None,
     source_file_contents=None,
 ):
-    prompt = prepare_prompt(
-        context,
-        task_prompt,
-        user_input,
-        persona_prompt,
-        enhancer_prompts,
-        source_file_contents,
+    chat = ChatOpenAICompletions(
+        base_url=f"http://{host()}:11434/v1",
+        model=model_name,
+        # llama.cpp doesn't check it, but the OpenAI SDK refuses to start without one
+        api_key="none",
+        system_prompt=system_prompt(task_prompt, persona_prompt, enhancer_prompts),
+        # a long answer on a slow machine is still an answer
+        kwargs={"timeout": None},
     )
-
-    data = {
-        "model": model_name,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": True,
-    }
-    async with httpx.AsyncClient(timeout=None) as httpx_client:
-        async with aconnect_sse(
-            httpx_client,
-            "POST",
-            f"http://{os.getenv('LLM_HOST')}:11434/v1/chat/completions",
-            json=data,
-        ) as event_source:
-            async for sse in event_source.aiter_sse():
-                yield f"{sse.data}\n"
+    async for x in await chat.stream_async(
+        user_turn(context, user_input, source_file_contents), content="all"
+    ):
+        yield x

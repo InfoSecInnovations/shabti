@@ -228,10 +228,11 @@ class BaseShabtiClient(ABC):
     ):
         file_id = None
         if file_path:
-            response = await self._make_request(
-                "POST", "/prompt/source_file", files=[("file", open(file_path, "rb"))]
-            )
-            file_id = response["id"]
+            with open(file_path, "rb") as f:
+                response = await self._make_request(
+                    "POST", "/prompt/source_file", files=[("file", f)]
+                )
+            file_id = response.json()["id"]
         async for line in self._stream_request(
             "POST",
             "prompt",

@@ -4,12 +4,43 @@ from shabti_api_client import BaseShabtiClient
 from .collections_data import CollectionsData
 import asyncio
 from shabti_types import TaskInfo, PromptConfigInfo, CollectionInfo
-from .doc_page_link import page_link
-from .source_text import source_text
+from .doc_page_link import page_link, source_label
 from typing import TypeVar
 from .load_models import load_models
+from chatlas.types import (
+    ContentThinkingDelta,
+    ContentToolRequest,
+    ContentToolResult,
+    ToolInfo,
+)
+from shinychat.types import Attachment, ToolResultDisplay
+import json
+import os
+import tempfile
+import urllib.request
+import uuid
 
-REFERENCE_LIMIT = 5
+# the API reads a source file as text, so only shinychat's text types are offered
+TEXT_ATTACHMENT_TYPES = [
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+    "text/html",
+    "application/xml",
+    "text/yaml",
+    "text/x-rst",
+    "text/x-tex",
+]
+
+# retrieval isn't a tool the LLM calls, but each source is shown as if it was one, so each gets a
+# row above the answer that expands to the text it was given
+SOURCES_TOOL = ToolInfo(
+    name="retrieve_sources",
+    description="",
+    parameters={},
+    annotations={"title": "Source"},
+)
 
 TCollectionInfo = TypeVar("TCollectionInfo", bound=CollectionInfo)
 
@@ -33,7 +64,6 @@ def prompter_server(
     collection_selector_server,
 ):
     llm_loaded = reactive.value(False)
-    current_file_id = reactive.value(0)
     tasks: reactive.Value[dict[str, TaskInfo] | None] = reactive.value(None)
     personas: reactive.Value[dict[str, PromptConfigInfo] | None] = reactive.value(None)
     enhancers: reactive.Value[dict[str, PromptConfigInfo] | None] = reactive.value(None)
@@ -125,6 +155,10 @@ def prompter_server(
         task_list = list(tasks_dict)
         selected_task = task_list[0] if "question" not in tasks_dict else "question"
         selectors = [collection_selector_ui("collection_selector")]
+        # a task without a prompt only searches, so there's no response for these to shape:
+        # see docs/developer/PROMPTER.md
+        promptless = [name for name, task in tasks_dict.items() if not task.prompt]
+        shapes_response = f"!{json.dumps(promptless)}.includes(input.task_select)"
         # we only display the model selector if more than one model is available
         if len(chat_models.get()) > 1:
             selectors.append(
@@ -140,6 +174,10 @@ def prompter_server(
                 id="prompter_chat",
                 placeholder=tasks_dict[selected_task].greeting,
                 show_history=False,
+                enable_cancel=True,
+                allow_attachments=TEXT_ATTACHMENT_TYPES,
+                # one row per source rather than one for them all, as a search is nothing but these
+                tool_grouping="none",
             ),
             ui.layout_columns(*selectors),
             ui.layout_columns(
@@ -149,19 +187,24 @@ def prompter_server(
                     choices=task_list,
                     selected=selected_task,
                 ),
-                ui.input_select(
-                    id="persona_select",
-                    label="Persona",
-                    choices=["None", *personas.get().keys()],
+                ui.panel_conditional(
+                    shapes_response,
+                    ui.input_select(
+                        id="persona_select",
+                        label="Persona",
+                        choices=["None", *personas.get().keys()],
+                    ),
                 ),
-                ui.input_selectize(
-                    id="enhancers_select",
-                    label="Enhancers",
-                    choices=list(enhancers.get()),
-                    multiple=True,
+                ui.panel_conditional(
+                    shapes_response,
+                    ui.input_selectize(
+                        id="enhancers_select",
+                        label="Enhancers",
+                        choices=list(enhancers.get()),
+                        multiple=True,
+                    ),
                 ),
             ),
-            ui.output_ui("file_input"),
         )
 
     @reactive.effect
@@ -173,6 +216,29 @@ def prompter_server(
         if selected_task in task_list:
             chat.update_user_input(placeholder=tasks_dict[selected_task].greeting)
 
+    def source_result(collection_id: str, user_input: str, source):
+        request = ContentToolRequest(
+            id=uuid.uuid4().hex,
+            name=SOURCES_TOOL.name,
+            arguments={"query": user_input},
+            tool=SOURCES_TOOL,
+        )
+        result = ContentToolResult(
+            value=source.text,
+            request=request,
+            extra={
+                "display": ToolResultDisplay(
+                    label=source_label(source),
+                    show_request=False,
+                    html=ui.TagList(
+                        ui.markdown(page_link(collection_id, source)),
+                        ui.div(source.text, class_="shabti-source-text"),
+                    ),
+                )
+            },
+        )
+        return request, result
+
     async def stream_response(
         collection_id: str,
         user_input: str,
@@ -181,53 +247,53 @@ def prompter_server(
         selected_enhancers: list[str] | None,
         file_path: str | None,
     ):
-        async for x in client.prompt(
-            collection_id,
-            user_input,
-            task,
-            None if not persona or persona == "None" else persona,
-            selected_enhancers,
-            file_path,
-        ):
-            if x.response:
-                yield x.response
-            elif x.source:
-                yield f"{page_link(collection_id, x.source)}\n\n{source_text(x.source.text)}\n\n"
-
-    @chat.on_user_submit
-    async def on_chat_submit(user_input: str):
-        collection_id = selected_collection.get()
-        task = input.task_select()
-        persona = input.persona_select()
-        selected_enhancers = input.enhancers_select()
-        input_files = input[f"prompt_file_{current_file_id.get()}"]()
-        file_path = None
-        if input_files and len(input_files):
-            file_path = input_files[0]["datapath"]
-        await chat.append_message_stream(
-            stream_response(
+        try:
+            async for x in client.prompt(
                 collection_id,
                 user_input,
                 task,
-                persona,
+                None if not persona or persona == "None" else persona,
                 selected_enhancers,
                 file_path,
+            ):
+                if x.response:
+                    yield x.response
+                elif x.thinking:
+                    yield ContentThinkingDelta(thinking=x.thinking)
+                elif x.source:
+                    for content in source_result(collection_id, user_input, x.source):
+                        yield content
+        finally:
+            if file_path:
+                os.remove(file_path)
+
+    def attachments_file(attachments: list[Attachment]):
+        """The attachments as one file, which is what a prompt takes"""
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(
+                b"\n\n".join(
+                    urllib.request.urlopen(a.data_url).read() for a in attachments
+                )
+            )
+        return f.name
+
+    @chat.on_user_submit
+    async def on_chat_submit(user_input: str, attachments: list[Attachment]):
+        await chat.append_message_stream(
+            stream_response(
+                selected_collection.get(),
+                user_input,
+                input.task_select(),
+                input.persona_select(),
+                input.enhancers_select(),
+                attachments_file(attachments) if attachments else None,
             )
         )
 
-    # this will trigger after the chat message has been submitted
     @reactive.effect
-    @reactive.event(chat.messages, ignore_none=False, ignore_init=True)
-    def on_message():
-        # this will clear the file input
-        current_file_id.set(current_file_id.get() + 1)
-
-    @render.ui
-    @reactive.event(current_file_id, ignore_none=False, ignore_init=False)
-    def file_input():
-        return ui.input_file(
-            id=f"prompt_file_{current_file_id.get()}", label="Source File (optional)"
-        )
+    @reactive.event(input.prompter_chat_cancel)
+    def on_chat_cancel():
+        chat.latest_message_stream.cancel()
 
     @reactive.effect
     def update_config():

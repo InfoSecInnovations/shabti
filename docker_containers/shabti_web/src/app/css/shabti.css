@@ -22,8 +22,8 @@
 }
 
 /* A prompter source's chunk is document text, so its line breaks are kept as they were stored
-   rather than reflowed, and it is set apart from the answer it sits above. */
-.shabti-source-text > div {
+   rather than reflowed, and it is set apart from the link above it. */
+.shabti-source-text {
 	white-space: pre-wrap;
 	border-left: 3px solid var(--bs-border-color);
 	padding-left: 0.75em;

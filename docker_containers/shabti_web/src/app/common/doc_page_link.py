@@ -39,3 +39,21 @@ def page_link(
             else ''
         }"
     return f"{source.document_metadata.media_type} type document from {source.document_metadata.source}"
+
+
+def source_label(source: PromptSource):
+    """`page_link` without the links, short enough to name a source in a one-line row"""
+    if source.document_metadata.media_type == "application/pdf":
+        return f"page {source.page_metadata.page_number} of {source.document_metadata.filename}"
+    if (
+        source.document_metadata.media_type == "text/html"
+        and not source.document_metadata.filename
+    ):
+        return source.page_metadata.source
+    if source.document_metadata.filename:
+        return f"{source.document_metadata.filename}{
+            f' (page {source.page_metadata.page_number})'
+            if source.page_metadata.page_number
+            else ''
+        }"
+    return source.document_metadata.source

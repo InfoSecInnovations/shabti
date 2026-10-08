@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14, <3.15"
 dependencies = [
     "beautifulsoup4==4.15.0",
+    "chatlas==0.23.0",
     "configobj==5.0.9",
     "crawlee[beautifulsoup]==1.9.3",
     "fastapi[standard]==0.141.1",

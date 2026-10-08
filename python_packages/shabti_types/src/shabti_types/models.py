@@ -145,6 +145,8 @@ class PromptSource(BaseModel):
 class PromptChunk(BaseModel):
     response: Optional[str] = None
     source: Optional[PromptSource] = None
+    # the model's reasoning, streamed ahead of the response by models that think before answering
+    thinking: Optional[str] = None
 
 
 class ServiceStatus(BaseModel):
