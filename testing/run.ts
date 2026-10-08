@@ -187,7 +187,7 @@ for (const testType of testTypes) {
 
 	try {
 		if (isEndToEnd(testType)) {
-			loadEnvFor(testType === "enabled" ? "enabled" : "disabled");
+			await loadEnvFor(testType === "enabled" ? "enabled" : "disabled");
 			await writeTestModelsIni();
 			if (opts.clean) await nuke(testType);
 			if (testType === "enabled")

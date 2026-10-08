@@ -1,5 +1,5 @@
 import path from "node:path";
-import * as dotenv from "dotenv";
+import { parseEnv } from "node:util";
 import createCertificates from "../shabti_configurator/server/createCertificates";
 import getKeycloakClientSecret from "../shabti_configurator/server/getKeycloakClientSecret";
 import { runCommand } from "./stack";
@@ -19,6 +19,12 @@ const certPaths = () => ({
 	API_KEY: path.join(CERT_DIR, "shabti-key.pem"),
 });
 
+/** loads env files into process.env, later files and their values winning over what is already there */
+const loadEnv = async (...files: string[]) => {
+	for (const file of files)
+		Object.assign(process.env, parseEnv(await Bun.file(file).text()));
+};
+
 const writeGeneratedEnv = async (extra: Record<string, string> = {}) => {
 	const values = { ...certPaths(), ...extra };
 	await Bun.write(
@@ -28,11 +34,7 @@ const writeGeneratedEnv = async (extra: Record<string, string> = {}) => {
 			.join("\n")}\n`,
 	);
 	// the host side helpers below read straight from process.env, so keep it in step
-	dotenv.config({
-		path: [path.join(ENV_DIR, "security-enabled-env"), GENERATED_ENV],
-		override: true,
-		quiet: true,
-	});
+	await loadEnv(path.join(ENV_DIR, "security-enabled-env"), GENERATED_ENV);
 };
 
 /**
@@ -79,11 +81,7 @@ export default async () => {
 
 /** loads a type's env into process.env for the host side helpers that read it directly */
 export const loadEnvFor = (testType: "disabled" | "enabled") =>
-	dotenv.config({
-		path: path.join(ENV_DIR, `security-${testType}-env`),
-		override: true,
-		quiet: true,
-	});
+	loadEnv(path.join(ENV_DIR, `security-${testType}-env`));
 
 /**
  * What --no-clean does instead of the mini-install. Regenerating the certificates would hand the
@@ -95,10 +93,6 @@ export const reuseSecurity = async () => {
 		throw new Error(
 			`--no-clean needs an earlier security-enabled run to have written ${GENERATED_ENV}`,
 		);
-	dotenv.config({
-		path: [path.join(ENV_DIR, "security-enabled-env"), GENERATED_ENV],
-		override: true,
-		quiet: true,
-	});
+	await loadEnv(path.join(ENV_DIR, "security-enabled-env"), GENERATED_ENV);
 	console.log("reusing the existing certificates and Keycloak realm.");
 };
