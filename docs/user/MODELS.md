@@ -45,7 +45,9 @@ Shabti can also answer prompts with any OpenAI-compatible API, hosted or self-ho
 
 Every chat model is named `<provider>/<model>`, for example `local/MiniCPM5-2B` or `openrouter/openai/gpt-4o`. Only the first `/` separates the two, so a provider's own model IDs can contain one. The web app groups the models by provider, and the API, the clients and the CLI take and return these names.
 
-Providers are recorded in `docker_compose/docker_compose_dependencies/shabti_config/shabti-providers.json`:
+Add a provider in the "Model Provider" section of the configurator's install form, or under "Model Providers" in the "Manage Shabti" section. "Test Connection" lists the provider's models the way Shabti will, and you choose which of them to offer. A provider's model can also be the default chat model. If the provider documents an endpoint such as `https://api.example.com/v1/chat/completions` rather than its base URL, paste it in as it is: the configurator removes the endpoint path.
+
+The configurator records providers in `docker_compose/docker_compose_dependencies/shabti_config/shabti-providers.json`, which you can also edit by hand:
 
 ```json
 {

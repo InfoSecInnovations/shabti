@@ -5,6 +5,8 @@ import modelDownloadProgress from "./modelDownloadProgress";
 import readModelsIni from "./readModelsIni";
 import { startLlamaCpp, stopLlamaCpp } from "./restartLlamaCpp";
 import writeModelsIni from "./writeModelsIni";
+import { remoteModels, resolveDefaultModel } from "./providers";
+import writeProviders, { readProviders } from "./writeProviders";
 
 // updates the chat models available to an existing installation without going through a
 // full reinstall
@@ -15,13 +17,14 @@ export default async function* (options: FormData) {
 	const embeddingsModel =
 		current?.embeddingsModel ||
 		(await getDefaultModelSelection()).embeddingsModel;
-	const requestedDefault = options.get("default_model")?.toString();
+	const providers = await readProviders();
 	// the selector isn't rendered when there's only one model, and the previous default may
 	// have just been deselected
-	const defaultModel =
-		requestedDefault && chatModels.includes(requestedDefault)
-			? requestedDefault
-			: chatModels[0];
+	const { defaultModel, defaultChatModel } = resolveDefaultModel(
+		options.get("default_model")?.toString(),
+		chatModels,
+		remoteModels(providers.config),
+	);
 	const added = chatModels.filter(
 		(model) => !current?.chatModels.includes(model),
 	);
@@ -33,9 +36,10 @@ export default async function* (options: FormData) {
 	if (added.length) yield logMessage(`adding models: ${added.join(", ")}`);
 	if (removed.length)
 		yield logMessage(`removing models: ${removed.join(", ")}`);
+	const chosenDefault = defaultChatModel ?? defaultModel;
 	yield logMessage(
-		defaultModel
-			? `the default chat model will be ${defaultModel}.`
+		chosenDefault
+			? `the default chat model will be ${chosenDefault}.`
 			: "no chat model is selected, Shabti will only be able to search.",
 	);
 	yield logMessage(
@@ -43,6 +47,15 @@ export default async function* (options: FormData) {
 	);
 	await stopLlamaCpp();
 	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
+	// the API reads the providers' default before llama.cpp's, so a local one has to clear it
+	const { default_chat_model: _, ...config } = providers.config;
+	await writeProviders(
+		{
+			...config,
+			...(defaultChatModel ? { default_chat_model: defaultChatModel } : {}),
+		},
+		providers.keys,
+	);
 	yield logMessage("relaunching the LLM service...");
 	yield* startLlamaCpp();
 	// we run this over every selected model rather than just the new ones because it's cheap,

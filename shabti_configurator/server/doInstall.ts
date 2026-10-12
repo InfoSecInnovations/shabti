@@ -15,6 +15,11 @@ import modelDownloadProgress from "./modelDownloadProgress";
 import getDefaultModelSelection from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
 import writeProviders, { writeInstanceSalt } from "./writeProviders";
+import {
+	providerFromForm,
+	remoteModels,
+	resolveDefaultModel,
+} from "./providers";
 import getVersionData from "./getVersionData";
 import lockPythonDeps from "./lockPythonDeps";
 import { INCOMPLETE_KEY } from "./installIsIncomplete";
@@ -111,8 +116,13 @@ export default async function* (
 	const chatModels = options.getAll("language_model").map((v) => v.toString());
 	const embeddingsModel =
 		options.get("embeddings_model")?.toString() || defaults.embeddingsModel;
-	const defaultModel =
-		options.get("default_model")?.toString() || chatModels[0];
+	// before anything is torn down, so a provider that can't be added leaves the existing install alone
+	const added = providerFromForm(options, []);
+	const { defaultModel, defaultChatModel } = resolveDefaultModel(
+		options.get("default_model")?.toString(),
+		chatModels,
+		added ? remoteModels({ providers: [added.provider] }) : [],
+	);
 	yield logMessage("checking the selected models are available...");
 	const online = await requireModels([...chatModels, embeddingsModel]);
 	const composeFile = isLocal
@@ -170,7 +180,13 @@ export default async function* (
 		"docker-compose-download-model.yml",
 	);
 	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
-	await writeProviders({ providers: [] }, {});
+	await writeProviders(
+		{
+			providers: added ? [added.provider] : [],
+			...(defaultChatModel ? { default_chat_model: defaultChatModel } : {}),
+		},
+		added?.key ? { [added.provider.id]: added.key } : {},
+	);
 	await writeInstanceSalt();
 	yield logMessage("launching LLM service...");
 	yield* composeUp(loaderComposeFile); // launch llama.cpp

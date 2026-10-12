@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 /** a model the admin knows more about than the provider's own listing says */
 export interface ModelOverride {
@@ -90,3 +90,24 @@ export const writeInstanceSalt = async (baseDir = path.resolve()) => {
 	await replaceFile(saltPath, crypto.randomBytes(32).toString("hex"), 0o600);
 	return saltPath;
 };
+
+const readJson = async <T>(filePath: string, fallback: T): Promise<T> => {
+	try {
+		return JSON.parse(await readFile(filePath, "utf8")) as T;
+	} catch (error) {
+		// before the first install, or after an uninstall
+		if ((error as NodeJS.ErrnoException).code == "ENOENT") return fallback;
+		throw error;
+	}
+};
+
+/** what writeProviders last wrote, or no providers at all */
+export const readProviders = async (baseDir = path.resolve()) => ({
+	config: await readJson<ProvidersConfig>(getProvidersPath(baseDir), {
+		providers: [],
+	}),
+	keys: await readJson<Record<string, string>>(
+		getProviderKeysPath(baseDir),
+		{},
+	),
+});

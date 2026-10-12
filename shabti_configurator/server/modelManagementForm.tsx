@@ -1,9 +1,12 @@
 import { ChatModelSelector, resolveModelSelection } from "./chatModelSelector";
 import { ConnectivityNotice } from "./connectivityNotice";
+import { remoteModels } from "./providers";
+import { readProviders } from "./writeProviders";
 
 export const ModelManagementForm = async () => {
 	const { connectivity, selection, chatModels, selectedChatModels } =
 		await resolveModelSelection();
+	const { config } = await readProviders();
 	return (
 		<form action="/manage-models" method="post">
 			<fieldset>
@@ -14,7 +17,8 @@ export const ModelManagementForm = async () => {
 					containerId="manage_default_model_selector"
 					chatModels={chatModels}
 					selectedChatModels={selectedChatModels}
-					defaultModel={selection.defaultModel}
+					remoteModels={remoteModels(config)}
+					defaultModel={config.default_chat_model ?? selection.defaultModel}
 				></ChatModelSelector>
 				<p>
 					<label for="current_embeddings_model">Current Embeddings Model</label>

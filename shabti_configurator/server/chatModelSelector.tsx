@@ -50,55 +50,69 @@ export const resolveModelSelection = async () => {
 // and they have to be unique across the page, and the container's inner select is always
 // `${containerId}_select`, which wireDefaultModelSelector in the client bundle relies on, as it
 // does on `${containerId}_no_chat_model` for the note shown when nothing is selected.
+// remoteModels are the configured providers' models, qualified as the API names them, which can be
+// the default too. The client reads them back off the container to rebuild the selector.
 export const ChatModelSelector = (props: {
 	selectId: string;
 	containerId: string;
 	chatModels: string[];
 	selectedChatModels: string[];
+	remoteModels?: string[];
 	defaultModel?: string;
-}) => (
-	<>
-		<p>
-			<label for={props.selectId}>Select Chat Models</label>
-			<select name="language_model" id={props.selectId} multiple>
-				{props.chatModels.map((model) => (
-					<option
-						value={model}
-						selected={props.selectedChatModels.includes(model)}
-					>
-						{model}
-					</option>
-				))}
-			</select>
-		</p>
-		<p>
-			<small>
-				The language models which will be available to users when querying
-				Shabti.
-			</small>
-		</p>
-		<p
-			id={`${props.containerId}_no_chat_model`}
-			class={props.selectedChatModels.length ? "hidden" : undefined}
-		>
-			<small>
-				With no chat model, Shabti can only retrieve documents, effectively
-				functioning as a search engine on your documents.
-			</small>
-		</p>
-		<div id={props.containerId}>
-			{props.selectedChatModels.length > 1 && (
-				<p>
-					<label for={`${props.containerId}_select`}>Default Chat Model</label>
-					<select id={`${props.containerId}_select`} name="default_model">
-						{props.selectedChatModels.map((model) => (
-							<option value={model} selected={model == props.defaultModel}>
-								{model}
-							</option>
-						))}
-					</select>
-				</p>
-			)}
-		</div>
-	</>
-);
+}) => {
+	const defaultChoices = [
+		...props.selectedChatModels,
+		...(props.remoteModels ?? []),
+	];
+	return (
+		<>
+			<p>
+				<label for={props.selectId}>Select Chat Models</label>
+				<select name="language_model" id={props.selectId} multiple>
+					{props.chatModels.map((model) => (
+						<option
+							value={model}
+							selected={props.selectedChatModels.includes(model)}
+						>
+							{model}
+						</option>
+					))}
+				</select>
+			</p>
+			<p>
+				<small>
+					The language models which will be available to users when querying
+					Shabti.
+				</small>
+			</p>
+			<p
+				id={`${props.containerId}_no_chat_model`}
+				class={defaultChoices.length ? "hidden" : undefined}
+			>
+				<small>
+					With no chat model, Shabti can only retrieve documents, effectively
+					functioning as a search engine on your documents.
+				</small>
+			</p>
+			<div
+				id={props.containerId}
+				data-remote-models={JSON.stringify(props.remoteModels ?? [])}
+			>
+				{defaultChoices.length > 1 && (
+					<p>
+						<label for={`${props.containerId}_select`}>
+							Default Chat Model
+						</label>
+						<select id={`${props.containerId}_select`} name="default_model">
+							{defaultChoices.map((model) => (
+								<option value={model} selected={model == props.defaultModel}>
+									{model}
+								</option>
+							))}
+						</select>
+					</p>
+				)}
+			</div>
+		</>
+	);
+};

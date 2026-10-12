@@ -1,0 +1,65 @@
+// the install form and the provider management form both add a provider, so the ids are prefixed
+// to keep them unique on the page. wireProviderTest in the client bundle relies on them, and fills
+// `${prefix}provider_models` with the models the test finds
+export const ProviderFieldset = (props: {
+	idPrefix?: string;
+	legend: string;
+}) => {
+	const prefix = props.idPrefix || "";
+	return (
+		<fieldset>
+			<legend>{props.legend}</legend>
+			<p>
+				<small>
+					Any OpenAI-compatible API, hosted or self-hosted, can answer prompts
+					alongside or instead of the local models.
+				</small>
+			</p>
+			<p>
+				<label for={`${prefix}provider_name`}>Name</label>
+				<input
+					type="text"
+					id={`${prefix}provider_name`}
+					name="provider_name"
+				></input>
+			</p>
+			<p>
+				<label for={`${prefix}provider_base_url`}>Base URL</label>
+				<input
+					type="text"
+					id={`${prefix}provider_base_url`}
+					name="provider_base_url"
+					placeholder="https://api.example.com/v1"
+				></input>
+			</p>
+			<p>
+				<label for={`${prefix}provider_key`}>API Key</label>
+				<input
+					type="password"
+					id={`${prefix}provider_key`}
+					name="provider_key"
+					autocomplete="off"
+				></input>
+			</p>
+			<p>
+				<small>Leave it empty for a provider that doesn't take one.</small>
+			</p>
+			<p>
+				<label for={`${prefix}provider_headers`}>Extra Headers</label>
+				<textarea
+					id={`${prefix}provider_headers`}
+					name="provider_headers"
+					rows={2}
+					placeholder="Name: value"
+				></textarea>
+			</p>
+			<p>
+				<button type="button" id={`${prefix}provider_test`}>
+					Test Connection
+				</button>
+			</p>
+			<div id={`${prefix}provider_test_status`}></div>
+			<div id={`${prefix}provider_models`}></div>
+		</fieldset>
+	);
+};

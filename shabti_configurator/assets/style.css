@@ -23,6 +23,7 @@ input[type="text"],
 input:not([type]),
 input[type="number"],
 input[type="password"],
+textarea,
 select {
 	margin: 0 0.6em;
 }

@@ -12,8 +12,11 @@ import doUninstall from "./server/doUninstall";
 import dockerIsRunning from "./server/dockerIsRunning";
 import { InstallOptionsForm } from "./server/installOptionsForm";
 import manageModels from "./server/manageModels";
+import manageProviders from "./server/manageProviders";
 import { manageHostsAndPorts, manageLogging } from "./server/manageSettings";
 import { ModelManagementForm } from "./server/modelManagementForm";
+import { ProviderManagementForm } from "./server/providerManagementForm";
+import { providerRoutes } from "./server/providerRoutes";
 import { RelaunchForm } from "./server/relaunchForm";
 import { SettingsManagementForm } from "./server/settingsManagementForm";
 import { operationRoutes, runOperation } from "./server/operationRoutes";
@@ -140,6 +143,7 @@ app.get("/", async (c) => {
 														localIsRunning={localIsRunning}
 													></RelaunchForm>
 													<ModelManagementForm></ModelManagementForm>
+													<ProviderManagementForm></ProviderManagementForm>
 													<SettingsManagementForm></SettingsManagementForm>
 													<UninstallForm></UninstallForm>
 												</>
@@ -214,6 +218,15 @@ app.post("/manage-models", async (c) =>
 		"Language models updated successfully.",
 	),
 );
+app.post("/manage-providers", async (c) =>
+	runOperation(
+		c,
+		"Updating model providers",
+		manageProviders(await c.req.formData()),
+		"Model providers updated successfully.",
+	),
+);
+app.route("/", providerRoutes);
 app.post("/manage-logging", async (c) =>
 	runOperation(
 		c,

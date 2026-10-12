@@ -15,6 +15,7 @@ import {
 } from "snabbdom";
 import TomSelect from "tom-select";
 import "tom-select/dist/css/tom-select.css";
+import { providerId, qualify } from "../providerIds";
 
 const patch = init([
 	// Init patch function with chosen modules
@@ -89,10 +90,29 @@ const wireMultiSelect = (selectId: string) => {
 	new TomSelect(el, { plugins: ["remove_button"] });
 };
 
-// the default chat model can only be chosen when more than one model is selected, so the
+// the models a provider fieldset offers, qualified with the id its name will give it
+const fieldsetModels = (providerPrefix: string) => {
+	const name = document.getElementById(
+		`${providerPrefix}provider_name`,
+	) as HTMLInputElement | null;
+	const select = document.getElementById(
+		`${providerPrefix}provider_model`,
+	) as HTMLSelectElement | null;
+	const id = providerId(name?.value ?? "");
+	if (!select || !id) return [];
+	return [...select.selectedOptions].map((option) => qualify(id, option.value));
+};
+
+// the default chat model can only be chosen when more than one model is on offer, so the
 // selector is rendered on the fly. Both the install form and the model management form have
-// one, hence the ids being parameters, they have to be unique across the page.
-const wireDefaultModelSelector = (selectId: string, containerId: string) => {
+// one, hence the ids being parameters, they have to be unique across the page. The models of
+// providers that are already configured are on the container, and on the install form the ones
+// picked for the provider being added are offered too.
+const wireDefaultModelSelector = (
+	selectId: string,
+	containerId: string,
+	providerPrefix?: string,
+) => {
 	const chatModelSelector = document.getElementById(
 		selectId,
 	) as HTMLSelectElement | null;
@@ -102,16 +122,25 @@ const wireDefaultModelSelector = (selectId: string, containerId: string) => {
 	const noChatModelNote = document.getElementById(
 		`${containerId}_no_chat_model`,
 	);
+	const configured = JSON.parse(
+		container.dataset.remoteModels || "[]",
+	) as string[];
 	let vnode: VNode = toVNode(container);
-	chatModelSelector.onchange = () => {
+	const update = () => {
 		const selected = [...chatModelSelector.selectedOptions].map((s) => s.value);
-		noChatModelNote?.classList.toggle("hidden", selected.length > 0);
-		// keep the current choice if it's still selected, otherwise the browser would silently
+		const choices = [
+			...selected,
+			...configured,
+			...(providerPrefix != undefined ? fieldsetModels(providerPrefix) : []),
+		];
+		// a provider's models answer prompts as well as local ones do
+		noChatModelNote?.classList.toggle("hidden", choices.length > 0);
+		// keep the current choice if it's still on offer, otherwise the browser would silently
 		// fall back to the first option
 		const previous = (
 			document.getElementById(selectorId) as HTMLSelectElement | null
 		)?.value;
-		const options = selected.map((model) =>
+		const options = choices.map((model) =>
 			h(
 				"option",
 				{ attrs: { value: model, selected: model == previous } },
@@ -122,7 +151,8 @@ const wireDefaultModelSelector = (selectId: string, containerId: string) => {
 			vnode,
 			h(
 				`div#${containerId}`,
-				selected.length > 1
+				{ attrs: { "data-remote-models": JSON.stringify(configured) } },
+				choices.length > 1
 					? h("p", [
 							h("label", { attrs: { for: selectorId } }, "Default Chat Model"),
 							h(
@@ -135,6 +165,106 @@ const wireDefaultModelSelector = (selectId: string, containerId: string) => {
 					: undefined,
 			),
 		);
+	};
+	// the whole form rather than the chat model selector, as the provider's models and name are
+	// in it too. The default selector's own changes come through here as well, which is harmless
+	chatModelSelector.form?.addEventListener("change", (e) => {
+		if ((e.target as HTMLElement | null)?.id != selectorId) update();
+	});
+};
+
+// asks the configurator to list the provider's models, which it does from the server so the
+// browser doesn't need the provider to allow it, then offers them to choose from
+const wireProviderTest = (prefix: string) => {
+	const button = document.getElementById(
+		`${prefix}provider_test`,
+	) as HTMLButtonElement | null;
+	const statusEl = document.getElementById(`${prefix}provider_test_status`);
+	const modelsEl = document.getElementById(`${prefix}provider_models`);
+	if (!button || !statusEl || !modelsEl) return; // the section this belongs to isn't on the page
+	const field = (name: string) =>
+		document.getElementById(`${prefix}${name}`) as
+			| HTMLInputElement
+			| HTMLTextAreaElement;
+	let status: VNode = toVNode(statusEl);
+	let models: VNode = toVNode(modelsEl);
+	let tomSelect: TomSelect | undefined;
+	const showStatus = (className: string, contents: VNodeChildren) => {
+		status = patch(
+			status,
+			h(`div#${prefix}provider_test_status${className}`, contents),
+		);
+	};
+	const showModels = (ids: string[]) => {
+		tomSelect?.destroy();
+		tomSelect = undefined;
+		const selectId = `${prefix}provider_model`;
+		models = patch(
+			models,
+			h(
+				`div#${prefix}provider_models`,
+				ids.length
+					? h("p", [
+							h("label", { attrs: { for: selectId } }, "Models to Offer"),
+							h(
+								"select",
+								{
+									attrs: {
+										id: selectId,
+										name: "provider_model",
+										multiple: true,
+									},
+								},
+								ids.map((id) => h("option", { attrs: { value: id } }, id)),
+							),
+						])
+					: undefined,
+			),
+		);
+		const select = document.getElementById(
+			selectId,
+		) as HTMLSelectElement | null;
+		if (select)
+			tomSelect = new TomSelect(select, { plugins: ["remove_button"] });
+		// so the default chat model selector drops the models of a provider that changed
+		modelsEl.dispatchEvent(new Event("change", { bubbles: true }));
+	};
+	button.onclick = async () => {
+		button.disabled = true;
+		showStatus("", "Testing the connection...");
+		try {
+			const response = await fetch("/test-provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					base_url: field("provider_base_url").value,
+					key: field("provider_key").value,
+					headers: field("provider_headers").value,
+				}),
+			});
+			const result = await response.json();
+			if (result.error) {
+				showModels([]);
+				showStatus(".error", [
+					h("p", result.error),
+					result.hint ? h("p", result.hint) : undefined,
+				]);
+				return;
+			}
+			// the URL the API will use, which may have lost an endpoint path pasted along with it
+			field("provider_base_url").value = result.baseUrl;
+			showModels(result.models);
+			showStatus(
+				"",
+				result.models.length
+					? `Found ${result.models.length} models, choose the ones to offer.`
+					: "The provider listed no models.",
+			);
+		} catch {
+			showStatus(".error", "Couldn't test the connection.");
+		} finally {
+			button.disabled = false;
+		}
 	};
 };
 
@@ -254,11 +384,13 @@ if (formEl) {
 
 wireMultiSelect("language_model");
 wireMultiSelect("manage_language_model");
-wireDefaultModelSelector("language_model", "default_model_selector");
+wireDefaultModelSelector("language_model", "default_model_selector", "");
 wireDefaultModelSelector(
 	"manage_language_model",
 	"manage_default_model_selector",
 );
+wireProviderTest("");
+wireProviderTest("manage_");
 wireLoggingVisibility("activity_logging");
 wireLoggingVisibility("manage_activity_logging");
 wireTabs();

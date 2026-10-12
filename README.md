@@ -51,6 +51,8 @@ Note that the installer launches all the requirements for you, you generally won
 
 Once Shabti is installed, the "Manage Shabti" section also lets you change which language models are available without reinstalling. Adding a model downloads it, removing one leaves the downloaded files in place so you can add it back again quickly. Applying changes restarts the LLM service, as it only picks up model configuration changes on startup.
 
+Shabti can also answer prompts with any OpenAI-compatible API, such as OpenAI, OpenRouter or a self-hosted server, alongside or instead of the local models. Add one in the "Model Provider" section when installing, or under "Model Providers" in the "Manage Shabti" section afterwards: give it a name, its base URL and API key, click "Test Connection", and choose which of its models to offer. Provider changes apply straight away, without restarting anything. See [MODELS.md](docs/user/MODELS.md#providers) for more.
+
 ### Windows SmartScreen
 
 As we have just recently released the executable, Windows may not yet recognize it as being "safe". We would really appreciate it if you could run the app anyway, as this will allow us to increase trust with Microsoft and prevent future released from being blocked by SmartScreen.

@@ -6,6 +6,7 @@ import currentIsLocal from "./currentIsLocal";
 import listCompatibleVersions from "./listCompatibleVersions";
 import { ConnectivityNotice } from "./connectivityNotice";
 import { ChatModelSelector, resolveModelSelection } from "./chatModelSelector";
+import { ProviderFieldset } from "./providerFieldset";
 
 export const InstallOptionsForm = async (props: {
 	devMode: boolean;
@@ -79,6 +80,7 @@ export const InstallOptionsForm = async (props: {
 					</small>
 				</p>
 			</fieldset>
+			<ProviderFieldset legend="Model Provider"></ProviderFieldset>
 			<LoggingFieldset></LoggingFieldset>
 			<HostsAndPortsFieldset></HostsAndPortsFieldset>
 			<fieldset>
@@ -115,7 +117,8 @@ export const InstallOptionsForm = async (props: {
 				</p>
 				<p>
 					If you don't enable security anyone who can access the web UI will
-					have full privileges to interact with your Shabti instance!
+					have full privileges to interact with your Shabti instance, and use
+					any provider API keys you configure!
 				</p>
 				<p>
 					The demo configuration should never be used for production as it is a
