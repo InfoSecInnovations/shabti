@@ -230,6 +230,10 @@ export default async () => {
 			"-f, --file <file>",
 			"file to add information to the prompt context",
 		)
+		.option(
+			"-m, --model <model>",
+			"chat model to answer with, instead of the current one",
+		)
 		.action(async (userInput, options, command) => {
 			let sourceFound = false;
 			for await (const item of await client.prompt(
@@ -239,6 +243,7 @@ export default async () => {
 				options.persona,
 				options.enhancers,
 				options.file,
+				options.model,
 			)) {
 				if (item.source) {
 					if (!sourceFound) {
@@ -255,6 +260,9 @@ export default async () => {
 				}
 				if (item.response) {
 					process.stdout.write(item.response);
+				}
+				if (item.error) {
+					console.error(item.error);
 				}
 			}
 		});

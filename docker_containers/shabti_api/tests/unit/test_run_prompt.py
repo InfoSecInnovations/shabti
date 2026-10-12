@@ -1,7 +1,7 @@
 """What a prompt makes of the LLM's stream, chunk by chunk.
 
-No OpenSearch and no llama.cpp: the retrieval result, the loaded model, the LLM stream and the
-audit call are all stubbed on the module under test, so every test here is a statement about what
+No OpenSearch and no llama.cpp: the retrieval result, the LLM stream and the audit call are all
+stubbed on the module under test, so every test here is a statement about what
 happens between them. The prompter config is read for real, as in `test_prompt_info_validator`.
 
 The stubbed stream yields what `prompting.stream_response` yields - chatlas's `content="all"`
@@ -10,7 +10,7 @@ stream, which is text as plain strings and reasoning as `ContentThinkingDelta`.
 
 import pytest
 from chatlas.types import ContentThinkingDelta
-from shabti_types import CollectionInfo, PromptInfo
+from shabti_types import CollectionInfo, PromptInfo, ProviderUnavailableError
 
 from ...src.app.functionality import run_prompt as run_prompt_module
 from ...src.app.functionality.load_prompter_config import load_prompter_config
@@ -64,8 +64,11 @@ def prompt_info(**overrides):
     )
 
 
-async def run(**overrides):
-    return [chunk async for chunk in run_prompt(None, prompt_info(**overrides))]
+# the model is the one the validator resolved, which is None for a task without a prompt
+async def run(model_name="chat-1", **overrides):
+    return [
+        chunk async for chunk in run_prompt(None, prompt_info(**overrides), model_name)
+    ]
 
 
 def responses(chunks):
@@ -78,6 +81,10 @@ def sources(chunks):
 
 def thinking(chunks):
     return [chunk.thinking for chunk in chunks if chunk.thinking is not None]
+
+
+def errors(chunks):
+    return [chunk.error for chunk in chunks if chunk.error is not None]
 
 
 @pytest.fixture
@@ -105,19 +112,10 @@ def context(monkeypatch):
 
 
 @pytest.fixture
-def chat_model(monkeypatch):
-    async def get_loaded_chat_model():
-        return "chat-1"
-
-    monkeypatch.setattr(
-        run_prompt_module, "get_loaded_chat_model", get_loaded_chat_model
-    )
-
-
-@pytest.fixture
 def llm(monkeypatch):
-    """`llm(item, item, ...)` is the stream the prompt will be reading. Returns the arguments the
-    prompt asked the LLM with, filled in once the prompt has run."""
+    """`llm(item, item, ...)` is the stream the prompt will be reading, where an exception item is
+    raised rather than yielded. Returns the arguments the prompt asked the LLM with, filled in once
+    the prompt has run."""
 
     def stream(*items):
         asked = {}
@@ -125,6 +123,8 @@ def llm(monkeypatch):
         async def stream_response(**kwargs):
             asked.update(kwargs)
             for item in items:
+                if isinstance(item, Exception):
+                    raise item
                 yield item
 
         monkeypatch.setattr(run_prompt_module, "stream_response", stream_response)
@@ -151,13 +151,13 @@ def audit(monkeypatch):
     return entries
 
 
-async def test_an_empty_string_is_not_a_response(context, chat_model, audit, llm):
+async def test_an_empty_string_is_not_a_response(context, audit, llm):
     llm("", "Hello")
     assert responses(await run()) == ["Hello"]
 
 
 async def test_thinking_is_forwarded_apart_from_the_response(
-    logging_on, context, chat_model, audit, llm
+    logging_on, context, audit, llm
 ):
     # the UI shows reasoning in its own panel, and the audit log holds only what was answered
     llm(thought("Let me"), thought(" see"), thought(""), "Hello")
@@ -167,7 +167,7 @@ async def test_thinking_is_forwarded_apart_from_the_response(
     assert audit[0]["prompt"]["response"] == "Hello"
 
 
-async def test_persona_and_enhancers_reach_the_llm(context, chat_model, audit, llm):
+async def test_persona_and_enhancers_reach_the_llm(context, audit, llm):
     # the enhancers were once looked up, logged, and never handed on
     asked = llm("Hello")
     await run(persona=PERSONA, enhancers=[ENHANCER])
@@ -179,7 +179,7 @@ async def test_persona_and_enhancers_reach_the_llm(context, chat_model, audit, l
     ]
 
 
-async def test_every_source_comes_before_the_response(context, chat_model, audit, llm):
+async def test_every_source_comes_before_the_response(context, audit, llm):
     # the UI renders the references above the answer, and gets them in the order they arrive
     context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
     llm("Hello")
@@ -190,9 +190,7 @@ async def test_every_source_comes_before_the_response(context, chat_model, audit
     assert [item.page_metadata.page_number for item in found] == [1, 7]
 
 
-async def test_a_source_carries_the_chunk_it_was_cited_for(
-    context, chat_model, audit, llm
-):
+async def test_a_source_carries_the_chunk_it_was_cited_for(context, audit, llm):
     # the page only says where to look; the chunk is what the LLM was actually given
     context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
     llm("Hello")
@@ -203,9 +201,7 @@ async def test_a_source_carries_the_chunk_it_was_cited_for(
     ]
 
 
-async def test_no_sources_says_so_without_reaching_the_llm(
-    monkeypatch, context, chat_model, audit
-):
+async def test_no_sources_says_so_without_reaching_the_llm(monkeypatch, context, audit):
     context["context"] = ""
     context["sources"] = []
 
@@ -218,7 +214,7 @@ async def test_no_sources_says_so_without_reaching_the_llm(
 
 
 async def test_the_audit_entry_holds_the_response_the_user_saw(
-    logging_on, context, chat_model, audit, llm
+    logging_on, context, audit, llm
 ):
     # the entry is written after the stream ends, so it holds every piece of the response
     llm("Hello", " world")
@@ -237,7 +233,7 @@ async def test_the_audit_entry_holds_the_response_the_user_saw(
 
 
 async def test_the_audit_entry_records_what_shaped_the_prompt(
-    logging_on, context, chat_model, audit, llm
+    logging_on, context, audit, llm
 ):
     llm("Hello")
     await run(persona=PERSONA, enhancers=[ENHANCER])
@@ -245,9 +241,7 @@ async def test_the_audit_entry_records_what_shaped_the_prompt(
     assert audit[0]["prompt"]["enhancers"] == [ENHANCER]
 
 
-async def test_nothing_is_logged_when_logging_is_off(
-    logging_off, context, chat_model, audit, llm
-):
+async def test_nothing_is_logged_when_logging_is_off(logging_off, context, audit, llm):
     llm("Hello")
     assert responses(await run()) == ["Hello"]
     assert audit == []
@@ -257,21 +251,15 @@ async def test_nothing_is_logged_when_logging_is_off(
 def no_llm(monkeypatch):
     """Any attempt to reach the chat model fails the test."""
 
-    async def get_loaded_chat_model():
-        raise AssertionError("a search looked for a chat model")
-
     def stream_response(**kwargs):
         raise AssertionError("a search asked the LLM to answer")
 
-    monkeypatch.setattr(
-        run_prompt_module, "get_loaded_chat_model", get_loaded_chat_model
-    )
     monkeypatch.setattr(run_prompt_module, "stream_response", stream_response)
 
 
 async def test_a_search_returns_only_the_sources(context, no_llm, audit):
     context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
-    chunks = await run(task=SEARCH)
+    chunks = await run(model_name=None, task=SEARCH)
     assert [chunk.source is not None for chunk in chunks] == [True, True]
     assert [item.document_metadata.document_id for item in sources(chunks)] == [
         "doc-1",
@@ -283,7 +271,7 @@ async def test_a_search_is_audited_without_a_response(
     logging_on, context, no_llm, audit
 ):
     # nothing was generated, so there is no response to record, not an empty one
-    await run(task=SEARCH)
+    await run(model_name=None, task=SEARCH)
     assert audit[0]["prompt"] == {
         "sources": context["sources"],
         "input": "what is in this collection?",
@@ -303,7 +291,26 @@ async def test_a_search_ignores_what_only_shapes_a_response(
         return load_prompter_config(directory)
 
     monkeypatch.setattr(run_prompt_module, "load_prompter_config", load)
-    await run(task=SEARCH, persona=PERSONA, enhancers=[ENHANCER])
+    await run(model_name=None, task=SEARCH, persona=PERSONA, enhancers=[ENHANCER])
     assert reads == ["tasks"]
     assert "persona" not in audit[0]["prompt"]
     assert "enhancers" not in audit[0]["prompt"]
+
+
+async def test_the_resolved_model_answers(context, audit, llm):
+    # the one the prompt resolved to, not whichever happens to be loaded
+    asked = llm("Hello")
+    await run(model_name="chat-2")
+    assert asked["model_name"] == "chat-2"
+
+
+async def test_a_failure_mid_answer_is_streamed_as_an_error(
+    logging_on, context, audit, llm
+):
+    # the sources and part of the answer are already out, so there is no status left to fail with
+    llm("Hello", ProviderUnavailableError("chat-1"))
+    chunks = await run()
+    assert responses(chunks) == ["Hello"]
+    assert errors(chunks) == ["The model provider could not be reached"]
+    assert chunks[-1].error
+    assert audit[0]["prompt"]["response"] == "Hello"

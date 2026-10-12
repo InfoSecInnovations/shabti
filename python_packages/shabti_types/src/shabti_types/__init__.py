@@ -41,4 +41,10 @@ from .exceptions import (
     CollectionNotFoundError as CollectionNotFoundError,
     IngestNotFoundError as IngestNotFoundError,
     ServiceUnavailableError as ServiceUnavailableError,
+    ProviderError as ProviderError,
+    ProviderAuthError as ProviderAuthError,
+    ProviderQuotaError as ProviderQuotaError,
+    ProviderRateLimitError as ProviderRateLimitError,
+    ProviderNotFoundError as ProviderNotFoundError,
+    ProviderUnavailableError as ProviderUnavailableError,
 )

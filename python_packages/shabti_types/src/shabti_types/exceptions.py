@@ -118,3 +118,51 @@ class ServiceUnavailableError(ShabtiError):
             503,
         )
         self.services = services
+
+
+class ProviderError(ShabtiError):
+    """A model provider refused or failed a request.
+
+    The messages are always our own: an upstream body or header could carry a credential.
+    """
+
+    def __init__(self, model="", message="", status=502):
+        super().__init__(message or "The model provider failed the request", status)
+        self.model = model
+
+
+class ProviderAuthError(ProviderError):
+    def __init__(self, model="", message="", status=401):
+        super().__init__(
+            model, message or "The model provider rejected the credentials", status
+        )
+
+
+class ProviderQuotaError(ProviderError):
+    def __init__(self, model="", message=""):
+        super().__init__(
+            model, message or "The model provider's quota has been used up", 402
+        )
+
+
+class ProviderRateLimitError(ProviderError):
+    def __init__(self, model="", message=""):
+        super().__init__(
+            model,
+            message or "The model provider is limiting requests, try again shortly",
+            429,
+        )
+
+
+class ProviderNotFoundError(ProviderError):
+    def __init__(self, model="", message=""):
+        super().__init__(
+            model, message or f"The model provider has no model {model}", 404
+        )
+
+
+class ProviderUnavailableError(ProviderError):
+    def __init__(self, model="", message=""):
+        super().__init__(
+            model, message or "The model provider could not be reached", 502
+        )

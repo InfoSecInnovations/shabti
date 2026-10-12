@@ -358,19 +358,28 @@ def create_app():
         return await upload_prompt_file(file)
 
     body_checker = PromptBodyAuthChecker if auth_is_enabled else NoAuth
+    prompt_info_validator = PromptInfoValidator()
+
+    # the validator falls back on the requester's model selection, and which token dependency
+    # identifies them is only decided here
+    async def prompt_model(
+        prompt_info: PromptInfo, credentials: Annotated[str, Depends(access_token)]
+    ) -> str | None:
+        return await prompt_info_validator(prompt_info, credentials)
 
     @app.post(
         "/prompt",
         dependencies=[
             Depends(RequiredServices(Service.OPENSEARCH, Service.LLM)),
             Depends(body_checker("read")),
-            Depends(PromptInfoValidator()),
         ],
     )
     async def prompt_route(
-        prompt_info: PromptInfo, credentials: Annotated[str, Depends(access_token)]
+        prompt_info: PromptInfo,
+        credentials: Annotated[str, Depends(access_token)],
+        model: Annotated[str | None, Depends(prompt_model)],
     ) -> AsyncIterable[PromptChunk]:
-        async for x in run_prompt(credentials, prompt_info):
+        async for x in run_prompt(credentials, prompt_info, model):
             yield x
 
     @app.get("/status/llm")

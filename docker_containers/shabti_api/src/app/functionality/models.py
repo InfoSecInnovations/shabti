@@ -58,14 +58,6 @@ def active_chat_model(models_data) -> str | None:
     return model["id"] if model else None
 
 
-# for callers that can't do anything without a chat model, such as prompting
-async def get_loaded_chat_model() -> str:
-    model_id = active_chat_model(await get_models(tags=["chat"]))
-    if not model_id:
-        raise ModelNotFoundError(message="No chat model is loaded")
-    return model_id
-
-
 # yields the ids still waiting to unload on each poll so callers can report progress
 async def unload_models(model_ids: list[str]):
     pending = list(model_ids)

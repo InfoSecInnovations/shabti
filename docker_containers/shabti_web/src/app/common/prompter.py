@@ -1,12 +1,13 @@
 from shiny import ui, Inputs, Outputs, Session, module, reactive, render, req
 from .collection_selector_ui import collection_selector_ui
-from shabti_api_client import BaseShabtiClient
+from shabti_api_client import BaseShabtiClient, ShabtiRequestError
 from .collections_data import CollectionsData
 import asyncio
 from shabti_types import TaskInfo, PromptConfigInfo, CollectionInfo
 from .doc_page_link import page_link, source_label
 from typing import TypeVar
 from .load_models import load_models
+from .toasts import show_message
 from chatlas.types import (
     ContentThinkingDelta,
     ContentToolRequest,
@@ -271,6 +272,7 @@ def prompter_server(
         persona: str | None,
         selected_enhancers: list[str] | None,
         file_path: str | None,
+        model: str | None,
     ):
         try:
             async for x in client.prompt(
@@ -280,6 +282,7 @@ def prompter_server(
                 None if not persona or persona == "None" else persona,
                 selected_enhancers,
                 file_path,
+                model,
             ):
                 if x.response:
                     yield x.response
@@ -288,6 +291,15 @@ def prompter_server(
                 elif x.source:
                     for content in source_result(collection_id, user_input, x.source):
                         yield content
+                elif x.error:
+                    show_message(x.error, type="danger")
+        # refused before streaming, such as for a model another user has since swapped out
+        except ShabtiRequestError as e:
+            body = e.message["message"]
+            show_message(
+                body.get("detail", str(body)) if isinstance(body, dict) else str(body),
+                type="danger",
+            )
         finally:
             if file_path:
                 os.remove(file_path)
@@ -315,6 +327,8 @@ def prompter_server(
                 input.persona_select() if has_chat_model else None,
                 input.enhancers_select() if has_chat_model else None,
                 attachments_file(attachments) if attachments else None,
+                # without a chat model only a search runs, which needs none
+                current_model.get() if has_chat_model else None,
             )
         )
 

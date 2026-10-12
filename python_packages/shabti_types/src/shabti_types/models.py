@@ -128,6 +128,8 @@ class PromptInfo(BaseModel):
     persona: Optional[str] = None
     enhancers: Optional[list[str]] = None
     file_id: Optional[str] = None
+    # the chat model to answer with, or else the requester's selection
+    model: Optional[str] = None
 
 
 class PageInfo(BaseModel):
@@ -147,6 +149,8 @@ class PromptChunk(BaseModel):
     source: Optional[PromptSource] = None
     # the model's reasoning, streamed ahead of the response by models that think before answering
     thinking: Optional[str] = None
+    # a failure once the response has started streaming, when there is no status code left to use
+    error: Optional[str] = None
 
 
 class ServiceStatus(BaseModel):

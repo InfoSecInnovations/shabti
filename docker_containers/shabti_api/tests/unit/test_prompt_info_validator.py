@@ -4,9 +4,10 @@ The validator exists because a prompt's response is a stream: once the first chu
 no status code left to reject the request with. So everything it can know up front it has to check
 up front, and that is what this file pins.
 
-Only the chat model lookup is stubbed. The prompter config is read for real, from the directory the
-app itself reads, so adding a task or renaming a persona is covered here without touching the tests
-- and a config the app could not actually serve fails here rather than in front of a user.
+Only the chat model resolution is stubbed, as `test_chat_model_selection` covers it. The prompter
+config is read for real, from the directory the app itself reads, so adding a task or renaming a
+persona is covered here without touching the tests - and a config the app could not actually serve
+fails here rather than in front of a user.
 """
 
 import pytest
@@ -41,24 +42,24 @@ def prompt_info(**overrides):
 
 @pytest.fixture
 def loaded_chat_model(monkeypatch):
-    """A chat model is loaded, which is the case every other test here assumes."""
+    """A chat model is loaded, which is the case every other test here assumes. Returns what the
+    resolution was asked for, once the validator has run."""
+    asked = []
 
-    async def get_loaded_chat_model():
-        return "chat-1"
+    async def resolve_prompt_model(credentials, requested):
+        asked.append((credentials, requested))
+        return requested or "chat-1"
 
-    monkeypatch.setattr(
-        validator_module, "get_loaded_chat_model", get_loaded_chat_model
-    )
+    monkeypatch.setattr(validator_module, "resolve_prompt_model", resolve_prompt_model)
+    return asked
 
 
 @pytest.fixture
 def no_chat_model(monkeypatch):
-    async def get_loaded_chat_model():
-        raise ModelNotFoundError(message="No chat model is loaded")
+    async def resolve_prompt_model(credentials, requested):
+        raise ModelNotFoundError(message="No chat model is available")
 
-    monkeypatch.setattr(
-        validator_module, "get_loaded_chat_model", get_loaded_chat_model
-    )
+    monkeypatch.setattr(validator_module, "resolve_prompt_model", resolve_prompt_model)
 
 
 @pytest.fixture
@@ -166,7 +167,20 @@ async def test_no_loaded_chat_model_is_rejected(no_chat_model):
     with pytest.raises(HTTPException) as raised:
         await PromptInfoValidator()(prompt_info())
     assert raised.value.status_code == 400
-    assert raised.value.detail == "No chat model is loaded"
+    assert raised.value.detail == "No chat model is available"
+
+
+async def test_the_resolved_model_is_returned_for_the_prompt_to_use(loaded_chat_model):
+    assert await PromptInfoValidator()(prompt_info(task="question")) == "chat-1"
+
+
+async def test_the_requested_model_and_the_requester_are_resolved(loaded_chat_model):
+    # the requester decides the fallback: their stored selection when security is enabled
+    model = await PromptInfoValidator()(
+        prompt_info(task="question", model="chat-2"), "a-token"
+    )
+    assert model == "chat-2"
+    assert loaded_chat_model == [("a-token", "chat-2")]
 
 
 async def test_an_unknown_task_is_reported_before_the_missing_model(no_chat_model):
@@ -179,14 +193,22 @@ async def test_an_unknown_task_is_reported_before_the_missing_model(no_chat_mode
 @pytest.mark.parametrize("task", PROMPTLESS)
 async def test_a_task_without_a_prompt_needs_no_chat_model(no_chat_model, task):
     # it only finds the sources, which takes the embeddings model and nothing else
-    await PromptInfoValidator()(prompt_info(task=task))
+    assert await PromptInfoValidator()(prompt_info(task=task)) is None
+
+
+@pytest.mark.parametrize("task", PROMPTLESS)
+async def test_a_task_without_a_prompt_ignores_a_requested_model(
+    loaded_chat_model, task
+):
+    assert await PromptInfoValidator()(prompt_info(task=task, model="chat-2")) is None
+    assert loaded_chat_model == []
 
 
 @pytest.mark.parametrize("task", sorted(set(TASKS) - set(PROMPTLESS)))
 async def test_a_task_with_a_prompt_needs_a_chat_model(no_chat_model, task):
     with pytest.raises(HTTPException) as raised:
         await PromptInfoValidator()(prompt_info(task=task))
-    assert raised.value.detail == "No chat model is loaded"
+    assert raised.value.detail == "No chat model is available"
 
 
 @pytest.mark.parametrize("task", TASKS)

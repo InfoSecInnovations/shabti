@@ -1,17 +1,26 @@
 import aiofiles
 from chatlas.types import ContentThinkingDelta
-from shabti_types import PromptInfo, PromptChunk, PromptSource, DocumentInfo, PageInfo
+from shabti_types import (
+    PromptInfo,
+    PromptChunk,
+    PromptSource,
+    DocumentInfo,
+    PageInfo,
+    ShabtiError,
+)
 from .prompting import stream_response
 from .opensearch_prompting import get_context_from_opensearch
 from .opensearch import get_temp_file
 from .load_prompter_config import load_prompter_config
 from ..shabti_logging import log_user_action, logging_enabled
 from .document_collections import get_collection_info
-from .models import get_loaded_chat_model
 from .settings import setting
 
 
-async def run_prompt(token: None | str, prompt_info: PromptInfo):
+# model_name is the chat model the validator resolved, and None for a task without a prompt
+async def run_prompt(
+    token: None | str, prompt_info: PromptInfo, model_name: str | None
+):
     tasks = load_prompter_config("tasks")
     # a task without a prompt (`search`) only finds the sources, and never reaches the chat model:
     # see docs/developer/PROMPTER.md
@@ -94,24 +103,27 @@ async def run_prompt(token: None | str, prompt_info: PromptInfo):
         return
 
     response = ""
-    model_name = await get_loaded_chat_model()
-    async for x in stream_response(
-        model_name=model_name,
-        context=context["context"],
-        task_prompt=task_prompt,
-        user_input=prompt_info.user_input,
-        persona_prompt=persona_prompt,
-        enhancer_prompts=enhancer_prompts,
-        source_file_contents=source_file_contents,
-    ):
-        if isinstance(x, ContentThinkingDelta):
-            if x.thinking:
-                yield PromptChunk(thinking=x.thinking)
-        # nothing else is expected: no tools are registered, so the stream is only ever text
-        elif isinstance(x, str) and x:
-            yield PromptChunk(response=x)
-            if logging_enabled():
-                response += x
+    try:
+        async for x in stream_response(
+            model_name=model_name,
+            context=context["context"],
+            task_prompt=task_prompt,
+            user_input=prompt_info.user_input,
+            persona_prompt=persona_prompt,
+            enhancer_prompts=enhancer_prompts,
+            source_file_contents=source_file_contents,
+        ):
+            if isinstance(x, ContentThinkingDelta):
+                if x.thinking:
+                    yield PromptChunk(thinking=x.thinking)
+            # nothing else is expected: no tools are registered, so the stream is only ever text
+            elif isinstance(x, str) and x:
+                yield PromptChunk(response=x)
+                if logging_enabled():
+                    response += x
+    # the response has already started, so the error goes in the stream rather than a status
+    except ShabtiError as e:
+        yield PromptChunk(error=e.message)
 
     if logging_enabled():
         await log_prompt(response)

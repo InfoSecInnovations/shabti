@@ -115,3 +115,23 @@ async def test_prompting(shabti_client, shabti_collection_id, loaded_chat_model)
         "question",
     ):
         pass
+
+
+async def test_prompting_with_a_named_model(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    filename = "prompt_test.md"
+    file_path = os.path.join(os.path.dirname(__file__), "..", "assets", filename)
+    async for info in shabti_client.insert_files(shabti_collection_id, [file_path]):
+        pass
+    chunks = [
+        chunk
+        async for chunk in shabti_client.prompt(
+            shabti_collection_id,
+            "What does the word prompting mean?",
+            "question",
+            model=loaded_chat_model,
+        )
+    ]
+    assert any(chunk.response for chunk in chunks)
+    assert not any(chunk.error for chunk in chunks)

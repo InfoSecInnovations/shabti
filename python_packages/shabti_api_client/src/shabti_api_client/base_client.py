@@ -225,6 +225,8 @@ class BaseShabtiClient(ABC):
         persona: str | None = None,
         enhancers: list[str] | None = None,
         file_path: str | None = None,
+        # the chat model to answer with, or else the user's selection
+        model: str | None = None,
     ):
         file_id = None
         if file_path:
@@ -243,6 +245,7 @@ class BaseShabtiClient(ABC):
                 "persona": persona,
                 "enhancers": enhancers,
                 "file_id": file_id,
+                "model": model,
             },
         ):
             yield PromptChunk(**json.loads(line))

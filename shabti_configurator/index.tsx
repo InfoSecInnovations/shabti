@@ -248,5 +248,5 @@ if (!devMode) {
 	console.log("Extracted docker compose files.\n");
 }
 
-Bun.serve({ ...app, idleTimeout: 0 });
+Bun.serve({ ...app, hostname: "127.0.0.1", idleTimeout: 0 });
 console.log("visit http://localhost:3000 to install or manage Shabti");

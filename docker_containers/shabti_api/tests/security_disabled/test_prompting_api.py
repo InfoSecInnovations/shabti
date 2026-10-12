@@ -27,7 +27,7 @@ async def test_prompt(shabti_client, shabti_collection_id, loaded_chat_model):
     assert response.status_code == 200
 
 
-# the prompt runs on whichever chat model is loaded, so there is nothing to run if none is
+# without a model named, the prompt runs on the loaded one, so there is nothing to run if none is
 async def test_prompt_without_a_loaded_chat_model(
     shabti_client, shabti_collection_id, loaded_chat_model
 ):
@@ -44,10 +44,41 @@ async def test_prompt_without_a_loaded_chat_model(
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "No chat model is loaded"
+        assert response.json()["detail"] == f"Model {loaded_chat_model} is not loaded"
     finally:
         async for _ in load_model(loaded_chat_model):
             pass
+
+
+async def test_prompt_with_a_named_model(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    response = shabti_client.post(
+        "/prompt",
+        json={
+            "collection_id": shabti_collection_id,
+            "task": "question",
+            "user_input": "What does the word prompting mean?",
+            "model": loaded_chat_model,
+        },
+    )
+    assert response.status_code == 200
+
+
+async def test_prompt_with_an_unknown_model(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    response = shabti_client.post(
+        "/prompt",
+        json={
+            "collection_id": shabti_collection_id,
+            "task": "question",
+            "user_input": "What does the word prompting mean?",
+            "model": "not-a-model",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Model not-a-model is not available"
 
 
 # a search never reaches the chat model, so it runs without one: see docs/developer/PROMPTER.md

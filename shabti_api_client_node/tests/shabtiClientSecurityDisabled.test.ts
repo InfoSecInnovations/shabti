@@ -135,6 +135,27 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 				)) {
 				}
 			});
+			test("prompt with a named model", async () => {
+				const client = getClient();
+				for await (const item of await client.insertFiles(collectionId, [
+					promptDocPath,
+				])) {
+				}
+				const chunks: any[] = [];
+				for await (const item of await client.prompt(
+					collectionId,
+					"What does the word prompting mean?",
+					"question",
+					undefined,
+					undefined,
+					undefined,
+					loadedChatModel,
+				)) {
+					chunks.push(item);
+				}
+				expect(chunks.some((chunk) => chunk.response)).toBeTrue();
+				expect(chunks.some((chunk) => chunk.error)).toBeFalse();
+			});
 			describe("Node Client - Security disabled Shabti instance - tests with document ID", () => {
 				let documentId: string;
 				beforeEach(async () => {

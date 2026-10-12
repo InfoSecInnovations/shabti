@@ -272,6 +272,8 @@ export class BaseShabtiClient {
 		persona?: string,
 		enhancers?: string[],
 		filePath?: string,
+		// the chat model to answer with, or else the user's selection
+		model?: string,
 	): Promise<ReadableStream<any>> {
 		const fileId = await (async () => {
 			if (filePath) {
@@ -293,6 +295,7 @@ export class BaseShabtiClient {
 			persona,
 			enhancers,
 			file_id: fileId,
+			model,
 		});
 	}
 

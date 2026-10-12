@@ -14,10 +14,15 @@ A task without a `greeting` breaks `GET /tasks`, and with it the whole prompter 
 ## How a prompt is built
 
 `run_prompt` retrieves the most relevant chunks from the collection and streams them back as
-sources before anything else. It then asks the loaded chat model, through chatlas, with:
+sources before anything else. It then asks the chat model, through chatlas, with:
 
 - **system prompt**: persona, task, enhancers, in that order
 - **user turn**: the retrieved context, the user input, then the source file if one was attached
+
+The chat model is the prompt's `model`. If that is missing, it is the requester's selection (see
+`GET /models/chat/selection`). The validator resolves it before anything streams, and refuses a
+model that is unknown or not loaded with a 400. A failure after streaming has started comes back as
+a final chunk with `error` set.
 
 ## Tasks without a prompt
 
