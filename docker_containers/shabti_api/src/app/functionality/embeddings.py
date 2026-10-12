@@ -5,7 +5,7 @@ import threading
 from contextlib import suppress
 from functools import cache
 from shabti_types import EmbeddingsConfigError, EmbeddingsError, ModelNotFoundError
-from .models import llm_url
+from .providers.registry import local_url
 
 # the splitter sizes every candidate chunk through /tokenize, which is hundreds of calls for one
 # page, so the connection is held open across them rather than dialled per call. one session per
@@ -32,12 +32,12 @@ def send(method: str, path: str, **kwargs) -> requests.Response:
     one isn't safe to repeat; these are reads whatever the method says.
     """
     try:
-        return getattr(session(), method)(llm_url(path), **kwargs)
+        return getattr(session(), method)(local_url(path), **kwargs)
     except requests.exceptions.ConnectionError:
         with suppress(Exception):
             session().close()
         _local.session = None
-        return getattr(session(), method)(llm_url(path), **kwargs)
+        return getattr(session(), method)(local_url(path), **kwargs)
 
 
 def get_json(response: requests.Response, action: str):

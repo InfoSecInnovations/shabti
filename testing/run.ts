@@ -16,6 +16,7 @@ import {
 	preloadModels,
 	runSuite,
 	writeTestModelsIni,
+	writeTestProviders,
 } from "./stack";
 import {
 	TEST_TYPES,
@@ -189,6 +190,7 @@ for (const testType of testTypes) {
 		if (isEndToEnd(testType)) {
 			await loadEnvFor(testType === "enabled" ? "enabled" : "disabled");
 			await writeTestModelsIni();
+			await writeTestProviders();
 			if (opts.clean) await nuke(testType);
 			if (testType === "enabled")
 				await (opts.clean ? prepareSecurity() : reuseSecurity());

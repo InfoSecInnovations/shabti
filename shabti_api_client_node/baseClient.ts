@@ -11,6 +11,8 @@ import {
 	parseIngestInfo,
 	parseIngestLine,
 	PromptConfigInfo,
+	ProviderInfo,
+	ProviderModelInfo,
 	TaskInfo,
 	WebFile,
 } from "./dataTypes";
@@ -365,6 +367,53 @@ export class BaseShabtiClient {
 		return new WebFile(await res.blob(), mediaType);
 	}
 
+	async getProviders(): Promise<ProviderInfo[]> {
+		const res = await this.makeRequest("GET", "providers");
+		const json = (await res.json()) as any[];
+		return json.map(
+			(item) =>
+				new ProviderInfo(
+					item.id,
+					item.name,
+					item.credential_mode,
+					item.has_shared_key,
+				),
+		);
+	}
+
+	// every provider's models, with ids qualified as `<provider>/<model>` for prompting and selection
+	async getProviderModels(category?: string): Promise<ProviderModelInfo[]> {
+		const res = await this.makeRequest(
+			"GET",
+			"providers/models",
+			undefined,
+			undefined,
+			category ? { category } : undefined,
+		);
+		const json = (await res.json()) as any[];
+		return json.map(
+			(item) =>
+				new ProviderModelInfo(
+					item.id,
+					item.provider_id,
+					item.model_id,
+					item.display_name,
+					item.category,
+					item.context_length ?? undefined,
+					item.status ?? undefined,
+				),
+		);
+	}
+
+	async providerStatus(): Promise<Record<string, boolean>> {
+		const res = await this.makeRequest("GET", "status/providers");
+		const json = (await res.json()) as Record<string, { running: boolean }>;
+		return Object.fromEntries(
+			Object.entries(json).map(([id, status]) => [id, status.running]),
+		);
+	}
+
+	// llama.cpp's own models, by the unqualified ids `loadModel` takes
 	async getModels(tags?: string[]): Promise<{ data: ModelStatusInfo[] }> {
 		const params: any = {};
 		if (tags) params.tags = tags;

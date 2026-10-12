@@ -7,6 +7,8 @@ shabti_logs/
 test_results/
 processed_test_runs/
 shabti_config/
+# the provider keys and the instance salt
+shabti_configurator/docker_compose/docker_compose_dependencies/secrets/
 my-models.ini
 shabti-models.json
 custom_models.ini

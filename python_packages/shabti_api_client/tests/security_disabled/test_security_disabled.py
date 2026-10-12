@@ -130,8 +130,53 @@ async def test_prompting_with_a_named_model(
             shabti_collection_id,
             "What does the word prompting mean?",
             "question",
-            model=loaded_chat_model,
+            model=f"local/{loaded_chat_model}",
         )
     ]
     assert any(chunk.response for chunk in chunks)
     assert not any(chunk.error for chunk in chunks)
+
+
+# the stub provider is the test llama.cpp configured as a remote one would be, see testing/stack.ts
+async def test_prompting_with_a_remote_model(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    filename = "prompt_test.md"
+    file_path = os.path.join(os.path.dirname(__file__), "..", "assets", filename)
+    async for info in shabti_client.insert_files(shabti_collection_id, [file_path]):
+        pass
+    chunks = [
+        chunk
+        async for chunk in shabti_client.prompt(
+            shabti_collection_id,
+            "What does the word prompting mean?",
+            "question",
+            model=f"stub/{loaded_chat_model}",
+        )
+    ]
+    assert any(chunk.response for chunk in chunks)
+    assert not any(chunk.error for chunk in chunks)
+
+
+async def test_get_providers(shabti_client):
+    providers = {x.id: x for x in await shabti_client.get_providers()}
+    assert providers["local"].credential_mode == "none"
+    assert providers["stub"].has_shared_key
+
+
+async def test_get_provider_models(shabti_client, loaded_chat_model):
+    models = {x.id: x for x in await shabti_client.get_provider_models("chat")}
+    assert models[f"local/{loaded_chat_model}"].status == "loaded"
+    assert models[f"stub/{loaded_chat_model}"].model_id == loaded_chat_model
+    assert all(x.category == "chat" for x in models.values())
+
+
+async def test_provider_status(shabti_client):
+    assert await shabti_client.provider_status() == {"local": True, "stub": True}
+
+
+async def test_get_chat_model_selection(shabti_client, loaded_chat_model):
+    # with security disabled the selection is whichever local model is loaded
+    assert (
+        await shabti_client.get_chat_model_selection() == f"local/{loaded_chat_model}"
+    )

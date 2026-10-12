@@ -17,6 +17,10 @@ services:
         condition: service_healthy
     volumes:
       - shabti-files:/opt/shabti_files
+      # the providers and their keys, as the shabti service mounts them. here rather than in
+      # runners.yml as only the end-to-end types write them, see writeTestProviders
+      - ../../shabti_configurator/docker_compose/docker_compose_dependencies/shabti_config:/opt/shabti_config:ro
+      - ../../shabti_configurator/docker_compose/docker_compose_dependencies/secrets:/run/secrets:ro
 
   # shabti is only healthy once everything it depends on is, see stack.yml
   pytest-python-client:

@@ -1,4 +1,6 @@
+import pytest
 from ...src.app.functionality.ingesting import insert_document
+import json
 import os
 from ...src.app.functionality.loading import load_file
 from ...src.app.functionality.models import get_models, load_model, unload_models
@@ -44,7 +46,10 @@ async def test_prompt_without_a_loaded_chat_model(
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == f"Model {loaded_chat_model} is not loaded"
+        assert (
+            response.json()["detail"]
+            == f"Model local/{loaded_chat_model} is not loaded"
+        )
     finally:
         async for _ in load_model(loaded_chat_model):
             pass
@@ -59,10 +64,39 @@ async def test_prompt_with_a_named_model(
             "collection_id": shabti_collection_id,
             "task": "question",
             "user_input": "What does the word prompting mean?",
-            "model": loaded_chat_model,
+            "model": f"local/{loaded_chat_model}",
         },
     )
     assert response.status_code == 200
+
+
+def chunks(response):
+    return [json.loads(line) for line in response.text.splitlines() if line]
+
+
+# the stub provider is the test llama.cpp configured as a remote one would be, so this runs the
+# generic OpenAI-compatible path, key and all, without reaching outside the stack
+async def test_prompt_with_a_remote_model(
+    shabti_client, shabti_collection_id, loaded_chat_model
+):
+    unique_filename = uuid4().hex
+    with open(file_path, "rb") as f:
+        doc = load_file(f, filename)
+    async for _ in insert_document(None, shabti_collection_id, doc, unique_filename):
+        pass
+    response = shabti_client.post(
+        "/prompt",
+        json={
+            "collection_id": shabti_collection_id,
+            "task": "question",
+            "user_input": "What does the word prompting mean?",
+            "model": f"stub/{loaded_chat_model}",
+        },
+    )
+    assert response.status_code == 200
+    received = chunks(response)
+    assert any(x.get("response") for x in received)
+    assert not any(x.get("error") for x in received)
 
 
 async def test_prompt_with_an_unknown_model(
@@ -79,6 +113,23 @@ async def test_prompt_with_an_unknown_model(
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Model not-a-model is not available"
+
+
+@pytest.mark.parametrize("model", ["not-a-provider/chat", "stub/not-a-model"])
+async def test_prompt_with_an_unknown_remote_model(
+    shabti_client, shabti_collection_id, loaded_chat_model, model
+):
+    response = shabti_client.post(
+        "/prompt",
+        json={
+            "collection_id": shabti_collection_id,
+            "task": "question",
+            "user_input": "What does the word prompting mean?",
+            "model": model,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == f"Model {model} is not available"
 
 
 # a search never reaches the chat model, so it runs without one: see docs/developer/PROMPTER.md

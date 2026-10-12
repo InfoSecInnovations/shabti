@@ -3,6 +3,9 @@ import path from "node:path";
 import type { ModelSelection } from "../shabti_configurator/getDefaultModelSelection";
 import downloadModel from "../shabti_configurator/server/downloadModel";
 import writeModelsIni from "../shabti_configurator/server/writeModelsIni";
+import writeProviders, {
+	writeInstanceSalt,
+} from "../shabti_configurator/server/writeProviders";
 import {
 	type TestType,
 	type Suite,
@@ -136,6 +139,32 @@ const TEST_MODELS: ModelSelection = {
  */
 export const writeTestModelsIni = () =>
 	writeModelsIni(TEST_MODELS, path.join(REPO, "shabti_configurator"));
+
+/**
+ * The test llama.cpp again, as a remote provider would be configured: through its OpenAI-compatible
+ * API, with a key it ignores. That exercises the generic provider path without reaching anything
+ * outside the stack. Only the chat models are allowed, as llama.cpp lists the embeddings model too.
+ */
+export const STUB_PROVIDER = "stub";
+
+export const writeTestProviders = async () => {
+	const baseDir = path.join(REPO, "shabti_configurator");
+	await writeProviders(
+		{
+			providers: [
+				{
+					id: STUB_PROVIDER,
+					name: "Stub",
+					base_url: "http://llama_cpp:11434/v1",
+					models: { allow: TEST_MODELS.chatModels },
+				},
+			],
+		},
+		{ [STUB_PROVIDER]: "stub-key" },
+		baseDir,
+	);
+	await writeInstanceSalt(baseDir);
+};
 
 /**
  * llama.cpp only fetches a model the first time something loads it, which left the download to

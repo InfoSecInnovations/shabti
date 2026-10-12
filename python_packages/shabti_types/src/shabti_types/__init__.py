@@ -10,6 +10,8 @@ from .models import (
     DocumentIngestInfo as DocumentIngestInfo,
     ModelLoadInfo as ModelLoadInfo,
     ModelInfo as ModelInfo,
+    ProviderInfo as ProviderInfo,
+    ProviderModelInfo as ProviderModelInfo,
     PromptInfo as PromptInfo,
     ServiceStatus as ServiceStatus,
     Service as Service,
@@ -47,4 +49,5 @@ from .exceptions import (
     ProviderRateLimitError as ProviderRateLimitError,
     ProviderNotFoundError as ProviderNotFoundError,
     ProviderUnavailableError as ProviderUnavailableError,
+    ProviderConfigError as ProviderConfigError,
 )

@@ -51,7 +51,37 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 			).toBeTrue();
 		});
 		test("get chat model selection", async () => {
-			expect(await getClient().getChatModelSelection()).toBe(loadedChatModel);
+			expect(await getClient().getChatModelSelection()).toBe(
+				`local/${loadedChatModel}`,
+			);
+		});
+		// the test llama.cpp is also configured as the remote provider `stub`, see testing/stack.ts
+		test("get providers", async () => {
+			const providers = await getClient().getProviders();
+			expect(
+				providers.find((provider) => provider.id == "local")?.credentialMode,
+			).toBe("none");
+			expect(
+				providers.find((provider) => provider.id == "stub")?.hasSharedKey,
+			).toBeTrue();
+		});
+		test("get provider models", async () => {
+			const models = await getClient().getProviderModels("chat");
+			const local = models.find(
+				(model) => model.id == `local/${loadedChatModel}`,
+			);
+			expect(local?.status).toBe("loaded");
+			const remote = models.find(
+				(model) => model.id == `stub/${loadedChatModel}`,
+			);
+			expect(remote?.modelId).toBe(loadedChatModel);
+			expect(models.every((model) => model.category == "chat")).toBeTrue();
+		});
+		test("provider status", async () => {
+			expect(await getClient().providerStatus()).toEqual({
+				local: true,
+				stub: true,
+			});
 		});
 		test("create collection", async () => {
 			const collectionName = randomBytes(8).toString("hex");
@@ -149,7 +179,28 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 					undefined,
 					undefined,
 					undefined,
-					loadedChatModel,
+					`local/${loadedChatModel}`,
+				)) {
+					chunks.push(item);
+				}
+				expect(chunks.some((chunk) => chunk.response)).toBeTrue();
+				expect(chunks.some((chunk) => chunk.error)).toBeFalse();
+			});
+			test("prompt with a remote model", async () => {
+				const client = getClient();
+				for await (const item of await client.insertFiles(collectionId, [
+					promptDocPath,
+				])) {
+				}
+				const chunks: any[] = [];
+				for await (const item of await client.prompt(
+					collectionId,
+					"What does the word prompting mean?",
+					"question",
+					undefined,
+					undefined,
+					undefined,
+					`stub/${loadedChatModel}`,
 				)) {
 					chunks.push(item);
 				}

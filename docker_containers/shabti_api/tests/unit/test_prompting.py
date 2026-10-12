@@ -1,8 +1,9 @@
 """What the LLM is asked, and how.
 
-chatlas is stubbed on the module under test, so nothing reaches llama.cpp: these tests are about
+chatlas is stubbed on the module under test, so nothing reaches a provider: these tests are about
 the conversation handed to it - instructions as the system prompt, the question and what grounds it
-as the user's turn - and about the stream coming back untouched, or failing as one of our errors.
+as the user's turn - about where it is sent and with what credentials, and about the stream coming
+back untouched, or failing as one of our errors.
 """
 
 import httpx
@@ -18,7 +19,17 @@ from shabti_types import (
 )
 
 from ...src.app.functionality import prompting
-from ...src.app.functionality.prompting import stream_response
+from ...src.app.functionality.prompting import REMOTE_TIMEOUT, stream_response
+from ...src.app.functionality.providers.config import Provider
+from ...src.app.functionality.providers.registry import ChatModel, local_provider
+
+REMOTE = Provider(
+    id="remote",
+    name="Remote",
+    base_url="https://api.test/v1",
+    headers={"X-Org": "an-org"},
+    user_id_field="safety_identifier",
+)
 
 
 class Chat:
@@ -49,12 +60,18 @@ def chat(monkeypatch):
     return Chat.built
 
 
+def local_model():
+    return ChatModel(provider=local_provider(), model_id="chat-1")
+
+
 async def run(**overrides):
     return [
         x
         async for x in stream_response(
             **{
-                "model_name": "chat-1",
+                "model": local_model(),
+                "api_key": None,
+                "user": None,
                 "context": "the context",
                 "task_prompt": "the task",
                 "user_input": "the question",
@@ -64,10 +81,40 @@ async def run(**overrides):
     ]
 
 
-async def test_the_loaded_model_is_asked_on_the_llm_host(chat):
+async def test_a_local_model_is_asked_on_the_llm_host(chat):
     await run()
     assert chat[0].kwargs["model"] == "chat-1"
     assert chat[0].kwargs["base_url"] == "http://llm-host:11434/v1"
+    # llama.cpp doesn't check it, but the SDK won't start without one
+    assert chat[0].kwargs["api_key"] == "none"
+    # a long answer on a slow machine is still an answer
+    assert chat[0].kwargs["kwargs"]["timeout"] is None
+
+
+async def test_a_remote_model_is_asked_on_its_provider_with_the_key(chat):
+    await run(model=ChatModel(provider=REMOTE, model_id="vendor/chat"), api_key="sk-1")
+    assert chat[0].kwargs["model"] == "vendor/chat"
+    assert chat[0].kwargs["base_url"] == "https://api.test/v1"
+    assert chat[0].kwargs["api_key"] == "sk-1"
+    assert chat[0].kwargs["kwargs"]["default_headers"] == {"X-Org": "an-org"}
+    assert chat[0].kwargs["kwargs"]["timeout"] == REMOTE_TIMEOUT
+
+
+async def test_a_keyless_remote_provider_is_asked_without_a_key(chat):
+    await run(model=ChatModel(provider=REMOTE, model_id="vendor/chat"))
+    assert chat[0].kwargs["api_key"] == "none"
+
+
+async def test_the_user_goes_in_the_field_the_provider_names(chat):
+    await run(model=ChatModel(provider=REMOTE, model_id="vendor/chat"), user="a-hash")
+    _, kwargs = chat[0].asked
+    assert kwargs["kwargs"] == {"extra_body": {"safety_identifier": "a-hash"}}
+
+
+async def test_no_user_is_sent_without_one(chat):
+    await run()
+    _, kwargs = chat[0].asked
+    assert kwargs["kwargs"] is None
 
 
 async def test_the_instructions_are_the_system_prompt(chat):
@@ -87,7 +134,7 @@ async def test_the_question_and_its_grounding_are_the_user_turn(chat):
     assert args == (
         "Context: the context\n\nUser input: the question\n\nSource file: the file",
     )
-    assert kwargs == {"content": "all"}
+    assert kwargs["content"] == "all"
 
 
 async def test_the_user_turn_has_no_source_file_without_one(chat):
@@ -150,7 +197,8 @@ async def test_an_sdk_failure_is_reported_as_a_provider_error(
     failing_chat(error)
     with pytest.raises(expected) as raised:
         await run()
-    assert raised.value.model == "chat-1"
+    # qualified, so the message says which provider failed
+    assert raised.value.model == "local/chat-1"
     assert raised.value.message
     assert UPSTREAM_TEXT not in raised.value.message
 
@@ -160,7 +208,9 @@ async def test_the_answer_so_far_is_passed_on_before_the_failure(failing_chat):
     received = []
     with pytest.raises(ProviderUnavailableError):
         async for x in stream_response(
-            model_name="chat-1",
+            model=local_model(),
+            api_key=None,
+            user=None,
             context="the context",
             task_prompt="the task",
             user_input="the question",

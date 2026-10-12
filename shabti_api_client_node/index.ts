@@ -10,4 +10,6 @@ export {
 	type IngestStatus,
 	parseIngestInfo,
 	parseIngestLine,
+	ProviderInfo,
+	ProviderModelInfo,
 } from "./dataTypes";

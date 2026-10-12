@@ -1,13 +1,22 @@
 import os
+import time
 import httpx
 from shabti_keycloak import server_url
 from .opensearch import get_client
-from .models import llm_url
+from .providers.config import LOCAL, Provider
+from .providers.discovery import request_headers
+from .providers.keys import effective_key
+from .providers.registry import local_url
 from .loaders.tika_client import server_endpoint
 
 # these run ahead of the requests that need the service, so a service that has stopped answering
 # should cost the caller a few seconds rather than hang them
 CHECK_TIMEOUT = 3
+# a remote provider is asked on behalf of every status poll from every open page, which shouldn't
+# turn into a request each to an API that may be metered
+PROVIDER_CHECK_SECONDS = 60
+
+_provider_checks: dict[str, tuple[float, bool]] = {}
 
 
 async def _answers(url: str, **kwargs) -> bool:
@@ -19,7 +28,22 @@ async def _answers(url: str, **kwargs) -> bool:
 
 
 async def check_llm():
-    return await _answers(llm_url("/health"))
+    return await _answers(local_url("/health"))
+
+
+async def check_provider(provider: Provider) -> bool:
+    if provider.id == LOCAL:
+        return await check_llm()
+    checked = _provider_checks.get(provider.id)
+    if checked and time.monotonic() - checked[0] < PROVIDER_CHECK_SECONDS:
+        return checked[1]
+    running = await _answers(
+        f"{provider.base_url}/models",
+        headers=request_headers(provider, effective_key(provider, None)),
+        follow_redirects=False,
+    )
+    _provider_checks[provider.id] = (time.monotonic(), running)
+    return running
 
 
 async def check_opensearch():

@@ -39,3 +39,43 @@ The prefix requirements are very variable for each embeddings model, some of the
 After saving your changes and rerunning the configurator, you should see your models in the lists.
 
 If you use the same model ID as a model already in the Shabti defaults, you can override the configuration this way. 
+## Providers
+
+Shabti can also answer prompts with any OpenAI-compatible API, hosted or self-hosted. Each source of models is a provider. The bundled llama.cpp is the provider `local`, and its models keep running on your own hardware.
+
+Every chat model is named `<provider>/<model>`, for example `local/MiniCPM5-2B` or `openrouter/openai/gpt-4o`. Only the first `/` separates the two, so a provider's own model IDs can contain one. The web app groups the models by provider, and the API, the clients and the CLI take and return these names.
+
+Providers are recorded in `docker_compose/docker_compose_dependencies/shabti_config/shabti-providers.json`:
+
+```json
+{
+	"providers": [
+		{
+			"id": "openrouter",
+			"name": "OpenRouter",
+			"base_url": "https://openrouter.ai/api/v1",
+			"headers": { "X-Title": "Shabti" },
+			"models": {
+				"allow": ["openai/gpt-4o"],
+				"overrides": { "openai/gpt-4o": { "context_length": 128000, "label": "GPT-4o" } }
+			}
+		}
+	],
+	"default_chat_model": "openrouter/openai/gpt-4o"
+}
+```
+
+- `id` is lowercase letters, digits and `-`. `local` is reserved.
+- `base_url` includes the API version, usually ending in `/v1`.
+- `allow` limits which of the provider's models are offered. Leave it out to offer them all.
+- `overrides` correct what Shabti works out about a model: its `category` (`chat` or `embeddings`), `context_length` and `label`.
+- `default_chat_model` is the model a user starts on before they choose one.
+
+Shabti looks up each remote model's context length on [models.dev](https://models.dev), in a copy the configurator downloads each time it starts. A model it can't find there is assumed to take 8k tokens, unless the provider's model list or `overrides` say otherwise.
+
+API keys are kept apart from this file, in `docker_compose/docker_compose_dependencies/secrets/shabti_provider_keys.json`, as `{"openrouter": "sk-..."}`. That directory is mounted into the API container alone. A provider without a key is sent none, which suits most self-hosted servers.
+
+Changes to either file are picked up without restarting Shabti.
+
+> [!NOTE]
+> With security enabled, each request to a provider carries a hash of the user's ID, salted per installation, so the provider can tell one user's traffic from another's without learning who they are. Everything a prompt includes, the matched document extracts among it, is sent to the provider.

@@ -121,6 +121,27 @@ class ModelInfo(BaseModel):
     model_name: str
 
 
+class ProviderInfo(BaseModel):
+    """A source of models: llama.cpp as `local`, or an OpenAI-compatible API the admin added."""
+
+    id: str
+    name: str
+    credential_mode: str
+    has_shared_key: bool
+
+
+class ProviderModelInfo(BaseModel):
+    # qualified as `<provider_id>/<model_id>`, which is what a prompt or a selection names
+    id: str
+    provider_id: str
+    model_id: str
+    display_name: str
+    category: str
+    context_length: Optional[int] = None
+    # whether llama.cpp has it loaded. only `local` models have one, a remote model is always ready
+    status: Optional[str] = None
+
+
 class PromptInfo(BaseModel):
     collection_id: str
     task: str

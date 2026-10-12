@@ -295,6 +295,53 @@ export class ModelStatusInfo {
 	}
 }
 
+export class ProviderInfo {
+	id: string;
+	name: string;
+	credentialMode: string;
+	hasSharedKey: boolean;
+	constructor(
+		id: string,
+		name: string,
+		credentialMode: string,
+		hasSharedKey: boolean,
+	) {
+		this.id = id;
+		this.name = name;
+		this.credentialMode = credentialMode;
+		this.hasSharedKey = hasSharedKey;
+	}
+}
+
+export class ProviderModelInfo {
+	// qualified as `<provider>/<model>`, which is what a prompt or a selection names
+	id: string;
+	providerId: string;
+	modelId: string;
+	displayName: string;
+	category: string;
+	contextLength?: number;
+	// only llama.cpp's models have one, a remote model is always ready
+	status?: string;
+	constructor(
+		id: string,
+		providerId: string,
+		modelId: string,
+		displayName: string,
+		category: string,
+		contextLength?: number,
+		status?: string,
+	) {
+		this.id = id;
+		this.providerId = providerId;
+		this.modelId = modelId;
+		this.displayName = displayName;
+		this.category = category;
+		this.contextLength = contextLength;
+		this.status = status;
+	}
+}
+
 export class WebFile {
 	bytes: Blob;
 	mediaType: string;

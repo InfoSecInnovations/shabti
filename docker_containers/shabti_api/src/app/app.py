@@ -27,6 +27,8 @@ from shabti_types import (
     TempFileInfo,
     ModelInfo,
     ModelLoadInfo,
+    ProviderInfo,
+    ProviderModelInfo,
     DocumentIngestInfo,
     DocumentIngestError,
     PromptChunk,
@@ -44,7 +46,12 @@ from .functionality.embeddings import (
     get_embeddings_model_id,
     get_vector_dimension,
 )
-from .functionality.status import check_llm, check_opensearch, check_tika
+from .functionality.status import (
+    check_llm,
+    check_opensearch,
+    check_provider,
+    check_tika,
+)
 from .functionality.opensearch import close_client, sweep_ingesting_documents
 from .functionality.run_prompt import run_prompt
 from .functionality.load_prompter_config import load_prompter_config
@@ -55,6 +62,8 @@ from .authorization import (
     list_scopes,
 )
 from .functionality.models import load_model, get_models
+from .functionality.providers.discovery import list_all_models
+from .functionality.providers.registry import provider_info, providers
 from .functionality.chat_model_selection import (
     chat_model_selection,
     set_chat_model_selection,
@@ -386,6 +395,12 @@ def create_app():
     async def llm_status():
         return ServiceStatus(running=await check_llm())
 
+    @app.get("/status/providers", dependencies=[Depends(access_token)])
+    async def providers_status() -> dict[str, ServiceStatus]:
+        every = providers()
+        running = await asyncio.gather(*(check_provider(x) for x in every))
+        return {x.id: ServiceStatus(running=up) for x, up in zip(every, running)}
+
     @app.get("/status/opensearch")
     async def opensearch_status():
         return ServiceStatus(running=await check_opensearch())
@@ -409,9 +424,22 @@ def create_app():
     async def get_models_route(tags: Annotated[list[str] | None, Query()] = None):
         return await get_models(tags)
 
+    @app.get("/providers", dependencies=[Depends(access_token)])
+    def get_providers_route() -> list[ProviderInfo]:
+        return [provider_info(x) for x in providers()]
+
+    # every provider's models, qualified with the provider's id. one that can't be reached is left
+    # out rather than failing the others
+    @app.get("/providers/models")
+    async def get_provider_models_route(
+        credentials: Annotated[str, Depends(access_token)],
+        category: str | None = None,
+    ) -> list[ProviderModelInfo]:
+        return await list_all_models(category, credentials)
+
     # the chat model a client should start on: the user's last choice when security is enabled,
     # otherwise whichever model is currently loaded
-    @app.get("/models/chat/selection", dependencies=[llm])
+    @app.get("/models/chat/selection")
     async def get_chat_model_selection_route(
         credentials: Annotated[str, Depends(access_token)],
     ) -> ModelInfo | None:

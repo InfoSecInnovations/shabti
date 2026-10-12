@@ -1,9 +1,9 @@
 import asyncio
-import os
 import httpx
 from shabti_types import ModelLoadInfo, ModelNotFoundError
 from httpx_sse import aconnect_sse
 import json
+from .providers.registry import local_url
 
 # the tags that say what a model is for, as opposed to hints like "default"
 CATEGORY_TAGS = ("chat", "embeddings")
@@ -15,14 +15,10 @@ UNLOAD_POLL_INTERVAL = 0.5
 UNLOAD_TIMEOUT = 30
 
 
-def llm_url(path: str) -> str:
-    return f"http://{os.getenv('LLM_HOST')}:11434{path}"
-
-
 async def get_models(tags: list[str] | None = None, reload: bool = False):
     params = {"reload": 1} if reload else None
     async with httpx.AsyncClient() as client:
-        res = (await client.get(llm_url("/models"), params=params)).json()
+        res = (await client.get(local_url("/models"), params=params)).json()
     if tags:
         res["data"] = [
             x for x in res["data"] if any(tag in tags for tag in x.get("tags", []))
@@ -66,7 +62,7 @@ async def unload_models(model_ids: list[str]):
     print(f"unloading {pending}")
     async with httpx.AsyncClient() as client:
         for model_id in pending:
-            await client.post(llm_url("/models/unload"), json={"model": model_id})
+            await client.post(local_url("/models/unload"), json={"model": model_id})
 
         # the unload response doesn't tell us the resources have actually been released,
         # so we wait for the models to report as unloaded before loading anything else
@@ -75,7 +71,7 @@ async def unload_models(model_ids: list[str]):
             yield pending
             await asyncio.sleep(UNLOAD_POLL_INTERVAL)
             waited += UNLOAD_POLL_INTERVAL
-            models = (await client.get(llm_url("/models"))).json()
+            models = (await client.get(local_url("/models"))).json()
             pending = [
                 x["id"]
                 for x in models["data"]
@@ -131,14 +127,14 @@ async def load_model(model_name: str):
     async with httpx.AsyncClient(timeout=None) as httpx_client:
         if current_status == "unloaded":
             await httpx_client.post(
-                llm_url("/models/load"),
+                local_url("/models/load"),
                 json={"model": model_name},
             )
 
         async with aconnect_sse(
             httpx_client,
             "GET",
-            llm_url("/models/sse"),
+            local_url("/models/sse"),
         ) as event_source:
             async for sse in event_source.aiter_sse():
                 json_data = json.loads(sse.data)

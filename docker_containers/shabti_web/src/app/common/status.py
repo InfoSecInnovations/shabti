@@ -117,7 +117,9 @@ def status_server(
             )
         if llm_status.get() != "loading":
             items.append(
-                ui.markdown(f"{'🟢' if llm_status.get() == 'online' else '🔴'} LLM")
+                ui.markdown(
+                    f"{'🟢' if llm_status.get() == 'online' else '🔴'} Local models"
+                )
             )
         if tika_status.get() != "loading":
             items.append(

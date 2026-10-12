@@ -12,6 +12,8 @@ from shabti_types import (
     DocumentIngestError,
     DocumentList,
     IngestInfo,
+    ProviderInfo,
+    ProviderModelInfo,
 )
 import httpx
 import json
@@ -291,6 +293,23 @@ class BaseShabtiClient(ABC):
             content_disposition=content_disposition,
         )
 
+    async def get_providers(self) -> list[ProviderInfo]:
+        response = await self._make_request("GET", "providers")
+        return [ProviderInfo(**x) for x in response.json()]
+
+    # every provider's models, with ids qualified as `<provider>/<model>` for prompting and selection
+    async def get_provider_models(
+        self, category: str | None = None
+    ) -> list[ProviderModelInfo]:
+        params = {"category": category} if category else {}
+        response = await self._make_request("GET", "providers/models", params=params)
+        return [ProviderModelInfo(**x) for x in response.json()]
+
+    async def provider_status(self) -> dict[str, bool]:
+        response = await self._make_request("GET", "status/providers")
+        return {key: value["running"] for key, value in response.json().items()}
+
+    # llama.cpp's own models, by the unqualified ids `load_model` takes
     async def get_models(self, tags: list[str] | None = None) -> dict[str, Any]:
         params = {}
         if tags:

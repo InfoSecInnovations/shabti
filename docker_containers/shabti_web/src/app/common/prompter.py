@@ -3,7 +3,7 @@ from .collection_selector_ui import collection_selector_ui
 from shabti_api_client import BaseShabtiClient, ShabtiRequestError
 from .collections_data import CollectionsData
 import asyncio
-from shabti_types import TaskInfo, PromptConfigInfo, CollectionInfo
+from shabti_types import TaskInfo, PromptConfigInfo, CollectionInfo, ProviderModelInfo
 from .doc_page_link import page_link, source_label
 from typing import TypeVar
 from .load_models import load_models
@@ -68,7 +68,8 @@ def prompter_server(
     tasks: reactive.Value[dict[str, TaskInfo] | None] = reactive.value(None)
     personas: reactive.Value[dict[str, PromptConfigInfo] | None] = reactive.value(None)
     enhancers: reactive.Value[dict[str, PromptConfigInfo] | None] = reactive.value(None)
-    chat_models: reactive.Value[list[dict] | None] = reactive.value(None)
+    chat_models: reactive.Value[list[ProviderModelInfo] | None] = reactive.value(None)
+    provider_names: reactive.Value[dict[str, str]] = reactive.value({})
     current_model: reactive.Value[str | None] = reactive.value(None)
 
     @reactive.extended_task
@@ -98,14 +99,16 @@ def prompter_server(
 
     @reactive.extended_task
     async def init_models():
-        models, selection = await asyncio.gather(
-            client.get_models(tags=["chat"]), client.get_chat_model_selection()
+        return await asyncio.gather(
+            client.get_provider_models("chat"),
+            client.get_providers(),
+            client.get_chat_model_selection(),
         )
-        return models["data"], selection
 
     @reactive.effect
     def init_models_effect():
-        models_list, selected_id = init_models.result()
+        models_list, providers, selected_id = init_models.result()
+        provider_names.set({x.id: x.name for x in providers})
         chat_models.set(models_list)
         if models_list:
             current_model.set(selected_id)
@@ -138,7 +141,14 @@ def prompter_server(
     @reactive.effect
     @reactive.event(current_model, ignore_none=True, ignore_init=True)
     def on_current_model_set():
-        load_selected_model(current_model.get())
+        model = next(
+            (x for x in chat_models.get() or [] if x.id == current_model.get()), None
+        )
+        # a remote model is ready as soon as its provider lists it, only llama.cpp loads one
+        if model and model.provider_id == "local":
+            load_selected_model(model.model_id)
+        else:
+            llm_loaded.set(True)
 
     @reactive.effect
     def init():
@@ -203,11 +213,16 @@ def prompter_server(
         )
         # we only display the model selector if more than one model is available
         if len(chat_models.get()) > 1:
+            names = provider_names.get()
+            choices: dict[str, dict[str, str]] = {}
+            for m in chat_models.get():
+                group = names.get(m.provider_id, m.provider_id)
+                choices.setdefault(group, {})[m.id] = m.display_name
             selectors.append(
                 ui.input_select(
                     id="model_select",
                     label="Model",
-                    choices=[m["id"] for m in chat_models.get()],
+                    choices=choices,
                     selected=current_model.get(),
                 )
             )

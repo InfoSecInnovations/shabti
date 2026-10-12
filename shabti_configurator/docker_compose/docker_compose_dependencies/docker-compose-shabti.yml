@@ -15,7 +15,11 @@ services:
       - ${API_PORT:-15131}:15131
     volumes:
       - shabti-files:/opt/shabti_files
-      - ./shabti_config:/opt/shabti_config
+      # the model providers the installer recorded. the directory rather than the file so that
+      # rewriting it is visible to a running container
+      - ./shabti_config:/opt/shabti_config:ro
+      # the provider keys and the instance salt, mounted into the API alone
+      - ./secrets:/run/secrets:ro
       # the settings the installer recorded about the selected embeddings model. the directory
       # rather than the file so that rewriting it is visible to a running container
       - ./llama_models:/opt/shabti_models:ro

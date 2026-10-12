@@ -38,17 +38,30 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 		});
 		test("pull model", async () => {
 			const program = await buildProgram();
-			await program.parseAsync(["model", "pull", loadedChatModel], {
+			// qualified, as `model list` shows it
+			await program.parseAsync(["model", "pull", `local/${loadedChatModel}`], {
 				from: "user",
 			});
-			expect(await getClient().getChatModelSelection()).toBe(loadedChatModel);
+			expect(await getClient().getChatModelSelection()).toBe(
+				`local/${loadedChatModel}`,
+			);
 		});
 		test("list models", async () => {
-			const output = await $`bun run index.ts model list --tags chat embeddings`
+			const output = await $`bun run index.ts model list`
 				.cwd(path.resolve(path.join(import.meta.dir, "..")))
 				.env({ ...process.env })
 				.text();
-			expect(output).toInclude(loadedChatModel);
+			expect(output).toInclude(`local/${loadedChatModel}`);
+			// the test llama.cpp is also configured as the remote provider `stub`
+			expect(output).toInclude(`stub/${loadedChatModel}`);
+		});
+		test("list models by category", async () => {
+			const output = await $`bun run index.ts model list --category embeddings`
+				.cwd(path.resolve(path.join(import.meta.dir, "..")))
+				.env({ ...process.env })
+				.text();
+			expect(output).not.toInclude(loadedChatModel);
+			expect(output).toInclude("embeddings");
 		});
 		test("current model", async () => {
 			const output = await $`bun run index.ts model current`

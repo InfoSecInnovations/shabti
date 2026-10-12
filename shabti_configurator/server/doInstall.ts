@@ -14,6 +14,7 @@ import getCurrentVersion from "./getCurrentVersion";
 import modelDownloadProgress from "./modelDownloadProgress";
 import getDefaultModelSelection from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
+import writeProviders, { writeInstanceSalt } from "./writeProviders";
 import getVersionData from "./getVersionData";
 import lockPythonDeps from "./lockPythonDeps";
 import { INCOMPLETE_KEY } from "./installIsIncomplete";
@@ -169,6 +170,8 @@ export default async function* (
 		"docker-compose-download-model.yml",
 	);
 	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
+	await writeProviders({ providers: [] }, {});
+	await writeInstanceSalt();
 	yield logMessage("launching LLM service...");
 	yield* composeUp(loaderComposeFile); // launch llama.cpp
 	// offline, requireModels has already confirmed they're all downloaded

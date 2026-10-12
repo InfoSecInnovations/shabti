@@ -25,6 +25,7 @@ import getCurrentVersion from "./server/getCurrentVersion";
 import currentIsLocal from "./server/currentIsLocal";
 import describeError from "./server/describeError";
 import installIsIncomplete from "./server/installIsIncomplete";
+import updateModelsDev from "./server/updateModelsDev";
 
 const { values } = parseArgs({
 	args: Bun.argv,
@@ -247,6 +248,13 @@ if (!devMode) {
 	zip.extractAllTo(".", true);
 	console.log("Extracted docker compose files.\n");
 }
+
+// in the background, as nothing here waits on it
+updateModelsDev().catch((error) =>
+	console.log(
+		`Couldn't update the models.dev catalogue, keeping the previous one: ${error instanceof Error ? error.message : error}\n`,
+	),
+);
 
 Bun.serve({ ...app, hostname: "127.0.0.1", idleTimeout: 0 });
 console.log("visit http://localhost:3000 to install or manage Shabti");

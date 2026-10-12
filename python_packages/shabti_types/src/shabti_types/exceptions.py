@@ -166,3 +166,13 @@ class ProviderUnavailableError(ProviderError):
         super().__init__(
             model, message or "The model provider could not be reached", 502
         )
+
+
+class ProviderConfigError(ShabtiError):
+    """The installer's record of the model providers is missing or unusable.
+
+    A 500 for the same reason as `EmbeddingsConfigError`: nothing the caller sent is wrong.
+    """
+
+    def __init__(self, message=""):
+        super().__init__(message, 500)

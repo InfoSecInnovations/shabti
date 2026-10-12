@@ -9,6 +9,9 @@ from shabti_types import (
     ShabtiError,
 )
 from .prompting import stream_response
+from .providers.keys import effective_key
+from .providers.registry import ChatModel
+from .providers.user_hash import provider_user
 from .opensearch_prompting import get_context_from_opensearch
 from .opensearch import get_temp_file
 from .load_prompter_config import load_prompter_config
@@ -17,9 +20,9 @@ from .document_collections import get_collection_info
 from .settings import setting
 
 
-# model_name is the chat model the validator resolved, and None for a task without a prompt
+# model is the chat model the validator resolved, and None for a task without a prompt
 async def run_prompt(
-    token: None | str, prompt_info: PromptInfo, model_name: str | None
+    token: None | str, prompt_info: PromptInfo, model: ChatModel | None
 ):
     tasks = load_prompter_config("tasks")
     # a task without a prompt (`search`) only finds the sources, and never reaches the chat model:
@@ -105,7 +108,9 @@ async def run_prompt(
     response = ""
     try:
         async for x in stream_response(
-            model_name=model_name,
+            model=model,
+            api_key=effective_key(model.provider, token),
+            user=await provider_user(model.provider, token),
             context=context["context"],
             task_prompt=task_prompt,
             user_input=prompt_info.user_input,

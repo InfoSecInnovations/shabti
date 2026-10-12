@@ -13,6 +13,8 @@ from chatlas.types import ContentThinkingDelta
 from shabti_types import CollectionInfo, PromptInfo, ProviderUnavailableError
 
 from ...src.app.functionality import run_prompt as run_prompt_module
+from ...src.app.functionality.providers.config import Provider
+from ...src.app.functionality.providers.registry import ChatModel, local_provider
 from ...src.app.functionality.load_prompter_config import load_prompter_config
 from ...src.app.functionality.run_prompt import run_prompt
 
@@ -64,11 +66,15 @@ def prompt_info(**overrides):
     )
 
 
+def local(model_id="chat-1"):
+    return ChatModel(provider=local_provider(), model_id=model_id)
+
+
 # the model is the one the validator resolved, which is None for a task without a prompt
-async def run(model_name="chat-1", **overrides):
-    return [
-        chunk async for chunk in run_prompt(None, prompt_info(**overrides), model_name)
-    ]
+async def run(model="chat-1", token=None, **overrides):
+    if isinstance(model, str):
+        model = local(model)
+    return [chunk async for chunk in run_prompt(token, prompt_info(**overrides), model)]
 
 
 def responses(chunks):
@@ -259,7 +265,7 @@ def no_llm(monkeypatch):
 
 async def test_a_search_returns_only_the_sources(context, no_llm, audit):
     context["sources"] = [source("doc-1", 1), source("doc-2", 7)]
-    chunks = await run(model_name=None, task=SEARCH)
+    chunks = await run(model=None, task=SEARCH)
     assert [chunk.source is not None for chunk in chunks] == [True, True]
     assert [item.document_metadata.document_id for item in sources(chunks)] == [
         "doc-1",
@@ -271,7 +277,7 @@ async def test_a_search_is_audited_without_a_response(
     logging_on, context, no_llm, audit
 ):
     # nothing was generated, so there is no response to record, not an empty one
-    await run(model_name=None, task=SEARCH)
+    await run(model=None, task=SEARCH)
     assert audit[0]["prompt"] == {
         "sources": context["sources"],
         "input": "what is in this collection?",
@@ -291,7 +297,7 @@ async def test_a_search_ignores_what_only_shapes_a_response(
         return load_prompter_config(directory)
 
     monkeypatch.setattr(run_prompt_module, "load_prompter_config", load)
-    await run(model_name=None, task=SEARCH, persona=PERSONA, enhancers=[ENHANCER])
+    await run(model=None, task=SEARCH, persona=PERSONA, enhancers=[ENHANCER])
     assert reads == ["tasks"]
     assert "persona" not in audit[0]["prompt"]
     assert "enhancers" not in audit[0]["prompt"]
@@ -300,8 +306,38 @@ async def test_a_search_ignores_what_only_shapes_a_response(
 async def test_the_resolved_model_answers(context, audit, llm):
     # the one the prompt resolved to, not whichever happens to be loaded
     asked = llm("Hello")
-    await run(model_name="chat-2")
-    assert asked["model_name"] == "chat-2"
+    await run(model="chat-2")
+    assert asked["model"] == local("chat-2")
+
+
+async def test_a_local_model_is_asked_without_a_key_or_a_user(context, audit, llm):
+    asked = llm("Hello")
+    await run(token="a-token")
+    assert asked["api_key"] is None
+    assert asked["user"] is None
+
+
+async def test_a_remote_model_is_asked_with_the_key_and_the_hashed_user(
+    monkeypatch, context, audit, llm
+):
+    remote = ChatModel(
+        provider=Provider(id="remote", name="Remote", base_url="https://api.test/v1"),
+        model_id="vendor/chat",
+    )
+
+    def effective_key(provider, credentials):
+        return f"key for {provider.id}"
+
+    async def provider_user(provider, credentials):
+        return f"hash of {credentials}"
+
+    monkeypatch.setattr(run_prompt_module, "effective_key", effective_key)
+    monkeypatch.setattr(run_prompt_module, "provider_user", provider_user)
+    asked = llm("Hello")
+    await run(model=remote, token="a-token")
+    assert asked["model"] == remote
+    assert asked["api_key"] == "key for remote"
+    assert asked["user"] == "hash of a-token"
 
 
 async def test_a_failure_mid_answer_is_streamed_as_an_error(

@@ -2,13 +2,14 @@ from shabti_types import PromptInfo, ModelNotFoundError
 from fastapi import HTTPException
 from ..functionality.load_prompter_config import load_prompter_config
 from ..functionality.chat_model_selection import resolve_prompt_model
+from ..functionality.providers.registry import ChatModel
 
 
 class PromptInfoValidator:
     # returns the chat model the prompt will answer with, or None for a task that won't reach one
     async def __call__(
         self, prompt_info: PromptInfo, credentials: str | None = None
-    ) -> str | None:
+    ) -> ChatModel | None:
         tasks = load_prompter_config("tasks")
         if prompt_info.task not in tasks:
             raise HTTPException(status_code=400, detail="Requested task not found")

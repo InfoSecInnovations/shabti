@@ -181,10 +181,14 @@ export default async () => {
 	const model = program.command("model");
 	model
 		.command("pull <model>")
-		.description("load a model, unloading any other of the same kind first")
+		.description(
+			"load a local model, unloading any other of the same kind first",
+		)
 		.action(async (modelName, options, command) => {
 			let bar: cliProgress.SingleBar | undefined = undefined;
-			for await (const item of await client.loadModel(modelName)) {
+			// llama.cpp knows its models without the provider they're listed under
+			const localName = modelName.replace(/^local\//, "");
+			for await (const item of await client.loadModel(localName)) {
 				if (!bar) {
 					bar = new cliProgress.SingleBar(
 						{ format: "{bar} {percentage}% {info}" },
@@ -199,12 +203,20 @@ export default async () => {
 		});
 	model
 		.command("list")
-		.description("list the models available to the server")
-		.option("-t, --tags [tags...]", "only list models with these tags")
+		.description("list the models available to the server, from every provider")
+		.option("-c, --category <category>", "only list chat or embeddings models")
 		.action((options, command) =>
 			client
-				.getModels(options.tags)
-				.then((models) => models.data.forEach((model) => console.log(model))),
+				.getProviderModels(options.category)
+				.then((models) =>
+					models.forEach((model) =>
+						console.log(
+							[model.id, model.category, model.status]
+								.filter((x) => x)
+								.join(" "),
+						),
+					),
+				),
 		);
 	model
 		.command("current")

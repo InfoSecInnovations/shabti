@@ -1,18 +1,12 @@
-import os
+import httpx
 import openai
 from chatlas import ChatOpenAICompletions
-from shabti_types import (
-    ProviderError,
-    ProviderAuthError,
-    ProviderQuotaError,
-    ProviderRateLimitError,
-    ProviderNotFoundError,
-    ProviderUnavailableError,
-)
+from .providers.config import LOCAL
+from .providers.errors import provider_error
+from .providers.registry import ChatModel
 
-
-def host():
-    return os.getenv("LLM_HOST") or "localhost"
+# a remote API that stops answering has failed, however long the answer it was writing
+REMOTE_TIMEOUT = httpx.Timeout(10, read=300)
 
 
 def system_prompt(task_prompt, persona_prompt=None, enhancer_prompts=None):
@@ -37,23 +31,10 @@ def user_turn(context, user_input, source_file_contents=None):
     return prompt
 
 
-# by status rather than by the SDK's exception classes, which don't name every status we report.
-# nothing from the upstream response is passed on, as a provider can echo credentials back
-def provider_error(e: openai.APIError, model_name: str) -> ProviderError:
-    if isinstance(e, openai.APIStatusError):
-        if e.status_code in (401, 403):
-            return ProviderAuthError(model_name, status=e.status_code)
-        if e.status_code == 402:
-            return ProviderQuotaError(model_name)
-        if e.status_code == 404:
-            return ProviderNotFoundError(model_name)
-        if e.status_code == 429:
-            return ProviderRateLimitError(model_name)
-    return ProviderUnavailableError(model_name)
-
-
 async def stream_response(
-    model_name,
+    model: ChatModel,
+    api_key: str | None,
+    user: str | None,
     context,
     task_prompt,
     user_input,
@@ -61,19 +42,29 @@ async def stream_response(
     enhancer_prompts=None,
     source_file_contents=None,
 ):
+    provider = model.provider
     chat = ChatOpenAICompletions(
-        base_url=f"http://{host()}:11434/v1",
-        model=model_name,
-        # llama.cpp doesn't check it, but the OpenAI SDK refuses to start without one
-        api_key="none",
+        base_url=provider.base_url,
+        model=model.model_id,
+        # llama.cpp and other keyless servers don't check it, but the OpenAI SDK refuses to start
+        # without one
+        api_key=api_key or "none",
         system_prompt=system_prompt(task_prompt, persona_prompt, enhancer_prompts),
-        # a long answer on a slow machine is still an answer
-        kwargs={"timeout": None},
+        kwargs={
+            # a long answer on a slow machine is still an answer
+            "timeout": None if provider.id == LOCAL else REMOTE_TIMEOUT,
+            "default_headers": dict(provider.headers),
+        },
     )
+    # in the body rather than as `user`, since not every provider calls the field that
+    request = {"extra_body": {provider.user_id_field: user}} if user else None
     try:
         async for x in await chat.stream_async(
-            user_turn(context, user_input, source_file_contents), content="all"
+            user_turn(context, user_input, source_file_contents),
+            content="all",
+            kwargs=request,
         ):
             yield x
     except openai.APIError as e:
-        raise provider_error(e, model_name) from e
+        status = e.status_code if isinstance(e, openai.APIStatusError) else None
+        raise provider_error(status, model.id) from e

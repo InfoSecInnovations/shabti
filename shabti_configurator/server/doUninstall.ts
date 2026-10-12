@@ -6,6 +6,7 @@ import logMessage from "./logMessage";
 import removeAllContainers from "./removeAllContainers";
 import stopWatchProcess from "./stopWatchProcess";
 import { getModelsIniPath, getShabtiModelsPath } from "./writeModelsIni";
+import { getProvidersPath, getSecretsDir } from "./writeProviders";
 
 export default async function* (
 	deleteModels: boolean,
@@ -36,6 +37,8 @@ export default async function* (
 	// the file existed
 	await rm(getModelsIniPath(), { force: true, recursive: true });
 	await rm(getShabtiModelsPath(), { force: true, recursive: true });
+	await rm(getProvidersPath(), { force: true, recursive: true });
+	await rm(getSecretsDir(), { force: true, recursive: true });
 	await rm(path.resolve("self_signed_certificates"), {
 		force: true,
 		recursive: true,
