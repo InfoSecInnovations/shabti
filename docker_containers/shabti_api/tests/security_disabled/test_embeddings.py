@@ -12,6 +12,7 @@ ever stops being true, a silent skip would report the same green summary as a wo
 import asyncio
 import math
 
+from ...src.app.functionality import embeddings_fingerprint
 from ...src.app.functionality.embeddings import (
     create_embeddings,
     get_embeddings_model_id,
@@ -71,3 +72,21 @@ async def test_related_text_embeds_closer_than_unrelated_text(shabti_client):
         model_id,
     )
     assert cosine(subject, related) > cosine(subject, unrelated)
+
+
+async def test_the_same_model_stays_within_the_drift_threshold(shabti_client):
+    # the threshold has to sit below whatever run-to-run noise the hardware adds, the tests' GPU
+    # included, or an unchanged model would stop every ingest
+    model_id = await embeddings_model_id()
+    first = await embed(embeddings_fingerprint.PROBES, model_id)
+    for _ in range(4):
+        again = await embed(embeddings_fingerprint.PROBES, model_id)
+        assert min(cosine(a, b) for a, b in zip(first, again)) >= (
+            embeddings_fingerprint.THRESHOLD
+        )
+
+
+async def test_an_unchanged_model_has_not_drifted(shabti_client, shabti_collection_id):
+    # the collection is what records the fingerprint, if nothing before it has
+    await embeddings_fingerprint.verify(force=True)
+    assert not embeddings_fingerprint.is_drifted()

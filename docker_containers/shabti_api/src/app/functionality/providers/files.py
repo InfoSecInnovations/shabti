@@ -1,7 +1,7 @@
 """Files the configurator writes for a running installation, re-read whenever they change.
 
-Keyed on the modification time rather than cached for good, as `embeddings_config` is: providers
-and their keys can be managed after install, and the API picks the change up without a restart.
+Keyed on the modification time rather than cached for good: providers and their keys can be managed
+after install, and the API picks the change up without a restart.
 """
 
 import os

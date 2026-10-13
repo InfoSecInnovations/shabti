@@ -24,7 +24,7 @@ These versions are currently being used to develop Shabti, lower versions may wo
 - **Docker Compose >= 2.24.6** (while frequently installed with docker, sometimes it's not. Docker compose files are how the docker containers are setup). Check with `docker compose version`.  
    
 Optional:  
-If you want to use GPU acceleration (Shabti does NOT require this, but it will make responses and ingesting dramatically faster), you must have the 
+If you want to use GPU acceleration for the local models (Shabti does NOT require this, but it will make responses and ingesting dramatically faster), you must have the 
 NVIDIA drivers correctly setup and running. Shabti will not install or make any adjustments to your driver configuration.  
 
 Note: if you want to use GPU acceleration on a Windows host, you must use WSL2.  
@@ -52,6 +52,8 @@ Note that the installer launches all the requirements for you, you generally won
 Once Shabti is installed, the "Manage Shabti" section also lets you change which language models are available without reinstalling. Adding a model downloads it, removing one leaves the downloaded files in place so you can add it back again quickly. Applying changes restarts the LLM service, as it only picks up model configuration changes on startup.
 
 Shabti can also answer prompts with any OpenAI-compatible API, such as OpenAI, OpenRouter or a self-hosted server, alongside or instead of the local models. Add one in the "Model Provider" section when installing, or under "Model Providers" in the "Manage Shabti" section afterwards: give it a name, its base URL and API key, click "Test Connection", and choose which of its models to offer. Provider changes apply straight away, without restarting anything. See [MODELS.md](docs/user/MODELS.md#providers) for more.
+
+A provider can embed your documents too. If every model you choose comes from a provider, Shabti runs without llama.cpp, and the GPU and model downloads aren't needed. See [MODELS.md](docs/user/MODELS.md#embeddings-from-a-provider).
 
 ### Windows SmartScreen
 

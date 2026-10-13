@@ -256,6 +256,11 @@ class BaseShabtiClient(ABC):
         response = await self._make_request("GET", "status/llm")
         return response.json()["running"]
 
+    # whether the embeddings model can be reached and still makes the vectors it did
+    async def embeddings_status(self) -> bool:
+        response = await self._make_request("GET", "status/embeddings")
+        return response.json()["running"]
+
     async def opensearch_status(self) -> bool:
         response = await self._make_request("GET", "status/opensearch")
         return response.json()["running"]

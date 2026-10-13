@@ -12,14 +12,21 @@ import createVenv from "./createVenv";
 import getKeycloakClientSecret from "./getKeycloakClientSecret";
 import getCurrentVersion from "./getCurrentVersion";
 import modelDownloadProgress from "./modelDownloadProgress";
-import getDefaultModelSelection from "../getDefaultModelSelection";
+import getDefaultModelSelection, {
+	localModels,
+	type ModelSelection,
+} from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
 import writeProviders, { writeInstanceSalt } from "./writeProviders";
 import {
 	providerFromForm,
+	remoteEmbeddingsFromForm,
 	remoteModels,
 	resolveDefaultModel,
+	tokenizerRepo,
 } from "./providers";
+import { fetchTokenizer, writeTokenizer } from "./downloadTokenizer";
+import { llamaCppEnv, needsLlamaCpp } from "./llamaCpp";
 import getVersionData from "./getVersionData";
 import lockPythonDeps from "./lockPythonDeps";
 import { INCOMPLETE_KEY } from "./installIsIncomplete";
@@ -114,17 +121,36 @@ export default async function* (
 	const defaults = await getDefaultModelSelection();
 	// no chat model is a valid choice, it leaves Shabti only able to search
 	const chatModels = options.getAll("language_model").map((v) => v.toString());
-	const embeddingsModel =
-		options.get("embeddings_model")?.toString() || defaults.embeddingsModel;
 	// before anything is torn down, so a provider that can't be added leaves the existing install alone
-	const added = providerFromForm(options, []);
+	const added = providerFromForm(
+		options,
+		[],
+		options.get("embeddings_source")?.toString() == "provider",
+	);
+	const remoteEmbeddings = remoteEmbeddingsFromForm(options, added?.provider);
+	const embeddingsModel = remoteEmbeddings
+		? undefined
+		: options.get("embeddings_model")?.toString() || defaults.embeddingsModel;
 	const { defaultModel, defaultChatModel } = resolveDefaultModel(
 		options.get("default_model")?.toString(),
 		chatModels,
 		added ? remoteModels({ providers: [added.provider] }) : [],
 	);
+	const selection: ModelSelection = {
+		chatModels,
+		embeddingsModel,
+		remoteEmbeddings,
+		defaultModel,
+	};
+	// an installation whose models are all remote has no use for llama.cpp, so it isn't pulled,
+	// started or waited for
+	const withLlamaCpp = needsLlamaCpp(chatModels, !!remoteEmbeddings);
+	Object.assign(envs, llamaCppEnv(withLlamaCpp));
+	const repo = tokenizerRepo(remoteEmbeddings?.settings.tokenizer ?? "");
+	if (repo) yield logMessage(`downloading the tokenizer from ${repo}...`);
+	const tokenizer = repo ? await fetchTokenizer(repo) : undefined;
 	yield logMessage("checking the selected models are available...");
-	const online = await requireModels([...chatModels, embeddingsModel]);
+	const online = await requireModels(localModels(selection));
 	const composeFile = isLocal
 		? "./docker_compose/docker-compose-dev.yml"
 		: "./docker_compose/docker-compose.yml";
@@ -153,7 +179,7 @@ export default async function* (
 				"Couldn't rebuild the Docker images, using the ones already built.",
 			);
 	}
-	await requireGpu(envs);
+	if (withLlamaCpp) await requireGpu(envs);
 	// keeping the language models, they're slow to download and the install can reuse them
 	yield* doUninstall(false, state);
 	if (securityEnabled) {
@@ -179,24 +205,37 @@ export default async function* (
 		"docker_compose",
 		"docker-compose-download-model.yml",
 	);
-	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
+	await writeModelsIni(selection);
+	if (repo && tokenizer) await writeTokenizer(repo, tokenizer);
 	await writeProviders(
 		{
 			providers: added ? [added.provider] : [],
 			...(defaultChatModel ? { default_chat_model: defaultChatModel } : {}),
+			...(remoteEmbeddings
+				? {
+						embeddings: {
+							model: remoteEmbeddings.model,
+							...(remoteEmbeddings.dimensions
+								? { dimensions: remoteEmbeddings.dimensions }
+								: {}),
+						},
+					}
+				: {}),
 		},
 		added?.key ? { [added.provider.id]: added.key } : {},
 	);
 	await writeInstanceSalt();
-	yield logMessage("launching LLM service...");
-	yield* composeUp(loaderComposeFile); // launch llama.cpp
-	// offline, requireModels has already confirmed they're all downloaded
-	if (online) {
-		// ensure requested models are downloaded so they will be available once the install is done
-		for (const modelName of [...chatModels, embeddingsModel])
-			yield* modelDownloadProgress(modelName);
+	if (withLlamaCpp) {
+		yield logMessage("launching LLM service...");
+		yield* composeUp(loaderComposeFile); // launch llama.cpp
+		// offline, requireModels has already confirmed they're all downloaded
+		if (online) {
+			// ensure requested models are downloaded so they will be available once the install is done
+			for (const modelName of localModels(selection))
+				yield* modelDownloadProgress(modelName);
+		}
+		yield* runCompose(loaderComposeFile, ["down"]);
 	}
-	yield* runCompose(loaderComposeFile, ["down"]);
 	yield logMessage("launching Docker containers...");
 	yield* composeUp(composeFile);
 	if (isLocal && installVenv) {

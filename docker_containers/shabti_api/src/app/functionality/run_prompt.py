@@ -24,6 +24,18 @@ from .settings import setting
 async def run_prompt(
     token: None | str, prompt_info: PromptInfo, model: ChatModel | None
 ):
+    # the response has started by the time anything here runs, so an error goes in the stream
+    # rather than a status - wherever it happens, embedding the question included
+    try:
+        async for chunk in prompt_chunks(token, prompt_info, model):
+            yield chunk
+    except ShabtiError as e:
+        yield PromptChunk(error=e.message)
+
+
+async def prompt_chunks(
+    token: None | str, prompt_info: PromptInfo, model: ChatModel | None
+):
     tasks = load_prompter_config("tasks")
     # a task without a prompt (`search`) only finds the sources, and never reaches the chat model:
     # see docs/developer/PROMPTER.md
@@ -126,7 +138,7 @@ async def run_prompt(
                 yield PromptChunk(response=x)
                 if logging_enabled():
                     response += x
-    # the response has already started, so the error goes in the stream rather than a status
+    # caught here as well as by run_prompt, so the answer so far is still logged
     except ShabtiError as e:
         yield PromptChunk(error=e.message)
 

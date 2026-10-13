@@ -10,7 +10,12 @@ stream, which is text as plain strings and reasoning as `ContentThinkingDelta`.
 
 import pytest
 from chatlas.types import ContentThinkingDelta
-from shabti_types import CollectionInfo, PromptInfo, ProviderUnavailableError
+from shabti_types import (
+    CollectionInfo,
+    PromptInfo,
+    ProviderRateLimitError,
+    ProviderUnavailableError,
+)
 
 from ...src.app.functionality import run_prompt as run_prompt_module
 from ...src.app.functionality.providers.config import Provider
@@ -350,3 +355,21 @@ async def test_a_failure_mid_answer_is_streamed_as_an_error(
     assert errors(chunks) == ["The model provider could not be reached"]
     assert chunks[-1].error
     assert audit[0]["prompt"]["response"] == "Hello"
+
+
+async def test_a_failure_before_the_answer_is_streamed_as_an_error(
+    monkeypatch, audit, no_llm
+):
+    # the question is embedded once the response has started, so a provider limiting the
+    # embeddings model can only be reported in the stream
+    async def get_context_from_opensearch(collection_id, limit, user_input):
+        raise ProviderRateLimitError(
+            "acme/embed-1", message="Rate limited (embeddings model acme/embed-1)"
+        )
+
+    monkeypatch.setattr(
+        run_prompt_module, "get_context_from_opensearch", get_context_from_opensearch
+    )
+    chunks = await run()
+    assert errors(chunks) == ["Rate limited (embeddings model acme/embed-1)"]
+    assert not responses(chunks)

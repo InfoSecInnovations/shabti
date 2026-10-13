@@ -1,7 +1,8 @@
 from shiny import module, reactive, ui, Inputs, Outputs, Session
 from ..common.collections_data import CollectionsData
-from shabti_types import CollectionExistsError, AuthzCollectionInfo
-from shabti_api_client import ShabtiAuthorizationClient
+from shabti_types import CollectionExistsError, AuthzCollectionInfo, ShabtiError
+from shabti_api_client import ShabtiAuthorizationClient, ShabtiRequestError
+from ..common.request_errors import request_error_text
 from ..common.text_input_enter import text_input_enter_ui, text_input_enter_server
 from ..common.toasts import show_message
 
@@ -53,6 +54,13 @@ def collection_create_server(
             selected_collection.set(collection_id)
         except CollectionExistsError:
             show_message("Collection with this name already exists", type="danger")
+        # creating one embeds a probe text, so the embeddings model being unavailable or rate
+        # limited is reported here, and would otherwise take the session down
+        except (ShabtiRequestError, ShabtiError) as e:
+            show_message(
+                f"Couldn't create the collection: {request_error_text(e)}",
+                type="danger",
+            )
         creating.set(False)
 
     @reactive.effect

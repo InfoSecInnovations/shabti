@@ -5,6 +5,8 @@ ENV PYTHONPATH=/
 WORKDIR /app/shabti/
 ENV UV_LINK_MODE=copy
 ENV UV_HTTP_TIMEOUT=500
+# tiktoken downloads its encodings on first use otherwise, which an offline installation can't
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken
 
 EXPOSE 15131
 
@@ -18,6 +20,7 @@ FROM base AS local
 RUN --mount=type=cache,target=/root/.cache/uv --mount=type=bind,source=pyproject.toml,target=pyproject.toml --mount=type=bind,source=uv.lock,target=uv.lock uv sync --locked --no-install-project
 COPY . /app/shabti/
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked
+RUN uv run --no-sync python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('cl100k_base', 'o200k_base')]"
 
 # isi_util's own tests are run from this image by docker-compose-pytest.yml
 WORKDIR /app/python_packages/isi_util/
@@ -30,5 +33,6 @@ FROM base AS online
 RUN --mount=type=cache,target=/root/.cache/uv --mount=type=bind,source=pyproject.toml,target=pyproject.toml --mount=type=bind,source=uv.lock,target=uv.lock uv sync --locked --no-install-project --no-dev --no-editable
 COPY . /app/shabti/
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
+RUN uv run --no-sync python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('cl100k_base', 'o200k_base')]"
 
 CMD [ "uv", "run", "docker_run.py" ]

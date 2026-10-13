@@ -248,6 +248,10 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 			const status = await getClient().llmStatus();
 			expect(status).toBeTrue();
 		});
+		test("get embeddings status", async () => {
+			const status = await getClient().embeddingsStatus();
+			expect(status).toBeTrue();
+		});
 		test("get OpenSearch status", async () => {
 			const status = await getClient().opensearchStatus();
 			expect(status).toBeTrue();

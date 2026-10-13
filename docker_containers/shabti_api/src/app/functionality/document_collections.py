@@ -41,7 +41,9 @@ from shabti_types import (
 )
 from ..shabti_logging import log_user_action, logging_enabled
 import aiofiles.os
+import logging
 import os
+from . import embeddings_fingerprint
 
 type Location = Literal["private", "shared"]
 
@@ -153,6 +155,8 @@ async def create_collection(
         resource_id = str(uuid4())
         # if we don't have authz configured, we write the collection name mapping to OpenSearch
         await create_index_mapping(resource_id, display_name)
+    # before the index, whose vectors are what the fingerprint is there to vouch for
+    await embeddings_fingerprint.ensure()
     await create_collection_index(resource_id)
     print(f"created {location or ''} collection {display_name} with ID {resource_id}")
     # the branch stays because it decides the return type, but it only builds the value and the
@@ -186,6 +190,13 @@ async def delete_collection(token, collection_id):
         await delete_index_mapping(collection_id)
     file_paths = await freeze_collection_and_get_file_paths(collection_id)
     await delete_collection_indices(collection_id)
+    # the collection is gone either way, so failing to tidy up after it doesn't fail the request
+    try:
+        await embeddings_fingerprint.reset_if_unused()
+    except Exception:
+        logging.getLogger("shabti").exception(
+            "could not reset the embeddings fingerprint"
+        )
     for file_path in file_paths:
         await aiofiles.os.remove(os.path.join(os.getenv("SHABTI_FILES_DIR"), file_path))
     print(f"deleted collection with ID {collection_id}")

@@ -37,6 +37,7 @@ from .exceptions import (
     EmbeddingsError as EmbeddingsError,
     EmbeddingsConfigError as EmbeddingsConfigError,
     EmbeddingsModelMismatchError as EmbeddingsModelMismatchError,
+    EmbeddingsDriftError as EmbeddingsDriftError,
     EmptyDocumentError as EmptyDocumentError,
     DuplicateDocumentError as DuplicateDocumentError,
     ForbiddenUrlError as ForbiddenUrlError,

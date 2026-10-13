@@ -1,6 +1,6 @@
 import asyncio
-from shabti_types import Service, ServiceUnavailableError
-from ..functionality import status
+from shabti_types import EmbeddingsDriftError, Service, ServiceUnavailableError
+from ..functionality import embeddings_fingerprint, status
 
 
 class RequiredServices:
@@ -18,6 +18,7 @@ class RequiredServices:
         checks = {
             Service.OPENSEARCH: status.check_opensearch,
             Service.LLM: status.check_llm,
+            Service.EMBEDDINGS: status.check_embeddings,
             Service.TIKA: status.check_tika,
             Service.KEYCLOAK: status.check_keycloak,
         }
@@ -27,5 +28,10 @@ class RequiredServices:
         missing = [
             service for service, running in zip(self.services, results) if not running
         ]
+        # a changed model is up, so saying it isn't would send someone to restart it for nothing
+        if Service.EMBEDDINGS in missing and embeddings_fingerprint.is_drifted():
+            missing.remove(Service.EMBEDDINGS)
+            if not missing:
+                raise EmbeddingsDriftError()
         if missing:
             raise ServiceUnavailableError(missing)

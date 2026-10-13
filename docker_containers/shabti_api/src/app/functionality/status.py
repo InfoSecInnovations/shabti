@@ -1,12 +1,14 @@
 import os
 import time
 import httpx
+from shabti_types import ShabtiError
 from shabti_keycloak import server_url
+from . import embeddings_fingerprint
 from .opensearch import get_client
-from .providers.config import LOCAL, Provider
+from .providers.config import LOCAL, Provider, providers_config
 from .providers.discovery import request_headers
 from .providers.keys import effective_key
-from .providers.registry import local_url
+from .providers.registry import get_provider, local_url, split_model_id
 from .loaders.tika_client import server_endpoint
 
 # these run ahead of the requests that need the service, so a service that has stopped answering
@@ -44,6 +46,22 @@ async def check_provider(provider: Provider) -> bool:
     )
     _provider_checks[provider.id] = (time.monotonic(), running)
     return running
+
+
+async def check_embeddings() -> bool:
+    """Whether the embeddings model can be reached, and still makes the vectors it did."""
+    try:
+        configured = providers_config().embeddings
+        # without a configured model it is whichever local one carries the tag
+        provider = get_provider(
+            split_model_id(configured.model)[0] if configured else LOCAL
+        )
+    except ShabtiError:
+        return False
+    if not await check_provider(provider):
+        return False
+    await embeddings_fingerprint.verify()
+    return not embeddings_fingerprint.is_drifted()
 
 
 async def check_opensearch():

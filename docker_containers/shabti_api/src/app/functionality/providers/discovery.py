@@ -102,11 +102,14 @@ async def remote_models(
     if (modified := config_mtime()) != _cached_config:
         clear_cache()
         _cached_config = modified
+    # a provider that only embeds offers nothing to chat with, so there's nothing to ask it
+    if provider.allow == ():
+        return []
     cached = _cache.get(provider.id)
     if cached and time.monotonic() - cached[0] < CACHE_SECONDS:
         return cached[1]
     listed = await fetch_models(provider, effective_key(provider, credentials))
-    if provider.allow:
+    if provider.allow is not None:
         listed = [x for x in listed if x["id"] in provider.allow]
     models = [describe(provider, x) for x in listed]
     _cache[provider.id] = (time.monotonic(), models)

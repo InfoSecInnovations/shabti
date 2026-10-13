@@ -143,6 +143,13 @@ async def test_the_allow_list_limits_what_is_offered(remote):
     assert [x.model_id for x in await list_models(provider, None)] == ["chat-b"]
 
 
+async def test_an_empty_allow_list_offers_nothing_without_asking(remote):
+    # a provider that only embeds has no chat models to offer
+    provider = replace(REMOTE, allow=())
+    assert await list_models(provider, None) == []
+    assert remote.gets == []
+
+
 async def test_the_context_length_prefers_the_provider_on_the_same_host(remote):
     # chat-a is known to both, chat-b only to another host, which beats knowing nothing
     lengths = {x.model_id: x.context_length for x in await list_models(REMOTE, None)}

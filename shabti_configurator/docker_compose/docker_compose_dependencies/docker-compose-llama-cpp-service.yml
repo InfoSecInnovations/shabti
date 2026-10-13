@@ -1,0 +1,8 @@
+services:
+  llama-cpp:
+    extends:
+      file: ./docker-compose-llama-cpp.yml
+      service: llama-cpp-${SHABTI_COMPUTE:-cpu}
+
+volumes:
+  llama-cpp-models:

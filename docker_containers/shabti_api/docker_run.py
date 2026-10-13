@@ -32,7 +32,8 @@ if __name__ == "__main__":
             *sorted(glob("/app/python_packages/*/src")),
         ]
 
-    while True:
+    # an installation whose models are all remote has no llama.cpp to wait for
+    while os.getenv("LLM_HOST"):
         try:
             if (
                 requests.get(f"http://{os.getenv('LLM_HOST')}:11434/health").status_code

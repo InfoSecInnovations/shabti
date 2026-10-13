@@ -17,6 +17,7 @@ export interface ProviderConfig {
 	headers?: Record<string, string>;
 	credential_mode?: "shared";
 	user_id_field?: string;
+	// without allow every model the provider lists is offered, and an empty one offers none
 	models?: { allow?: string[]; overrides?: Record<string, ModelOverride> };
 }
 
@@ -24,6 +25,8 @@ export interface ProvidersConfig {
 	providers: ProviderConfig[];
 	// qualified as <provider>/<model>, so it can name a local model as well as a remote one
 	default_chat_model?: string;
+	// a provider's model to embed with, left out to embed with the local one
+	embeddings?: { model: string; dimensions?: number };
 }
 
 // the compiled installer unzips docker_compose next to the working directory, so these stay

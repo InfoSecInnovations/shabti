@@ -34,10 +34,19 @@ class Provider:
     credential_mode: str = "shared"
     # the request field the hashed requester goes in, for providers that name it differently
     user_id_field: str = "user"
-    # the models offered, by the provider's own id. empty offers every model it lists
-    allow: tuple[str, ...] = ()
+    # the models offered, by the provider's own id. None offers every model it lists, and empty
+    # offers none, for a provider that only embeds
+    allow: tuple[str, ...] | None = None
     # what the admin knows better than discovery, by the provider's own model id
     overrides: dict[str, dict] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EmbeddingsConfig:
+    # qualified, like the default chat model
+    model: str
+    # asked of a model that can shorten its vectors, otherwise it makes its natural size
+    dimensions: int | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +54,8 @@ class ProvidersConfig:
     providers: tuple[Provider, ...] = ()
     # qualified, so it can name a local model as well as a remote one
     default_chat_model: str | None = None
+    # None embeds with whichever local model carries the embeddings tag
+    embeddings: EmbeddingsConfig | None = None
 
 
 def invalid(message: str) -> ProviderConfigError:
@@ -74,9 +85,28 @@ def parse_provider(raw) -> Provider:
         headers={str(k): str(v) for k, v in (raw.get("headers") or {}).items()},
         credential_mode=credential_mode,
         user_id_field=raw.get("user_id_field") or "user",
-        allow=tuple(models.get("allow") or ()),
+        allow=None if models.get("allow") is None else tuple(models["allow"]),
         overrides=dict(models.get("overrides") or {}),
     )
+
+
+def parse_embeddings(raw, providers: tuple[Provider, ...]) -> EmbeddingsConfig | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise invalid("embeddings must be an object")
+    model = raw.get("model")
+    provider_id, _, model_id = (model if isinstance(model, str) else "").partition("/")
+    if not provider_id or not model_id:
+        raise invalid("the embeddings model must be named as <provider>/<model>")
+    if provider_id != LOCAL and provider_id not in {x.id for x in providers}:
+        raise invalid(f"the embeddings model's provider {provider_id} isn't configured")
+    dimensions = raw.get("dimensions")
+    # a bool is an int as far as isinstance is concerned
+    whole = isinstance(dimensions, int) and not isinstance(dimensions, bool)
+    if dimensions is not None and not (whole and dimensions > 0):
+        raise invalid("the embeddings dimensions must be a positive whole number")
+    return EmbeddingsConfig(model=model, dimensions=dimensions)
 
 
 def parse_config(text: str) -> ProvidersConfig:
@@ -88,7 +118,9 @@ def parse_config(text: str) -> ProvidersConfig:
     if len(ids) != len(set(ids)):
         raise invalid("provider ids must be unique")
     return ProvidersConfig(
-        providers=providers, default_chat_model=raw.get("default_chat_model")
+        providers=providers,
+        default_chat_model=raw.get("default_chat_model"),
+        embeddings=parse_embeddings(raw.get("embeddings"), providers),
     )
 
 

@@ -217,3 +217,21 @@ async def test_the_answer_so_far_is_passed_on_before_the_failure(failing_chat):
         ):
             received.append(x)
     assert received == ["Hello"]
+
+
+async def test_the_providers_reason_is_passed_on_without_the_key(failing_chat):
+    # a rate limit is only actionable with the provider's reason: per minute is waited out, per
+    # day isn't
+    failing_chat(
+        openai.RateLimitError(
+            UPSTREAM_TEXT,
+            response=httpx.Response(429, request=REQUEST),
+            body={"message": "Rate limit exceeded for sk-secret: free-models-per-day"},
+        )
+    )
+    with pytest.raises(ProviderRateLimitError) as raised:
+        await run(api_key="sk-secret")
+    assert "(chat model local/chat-1)" in raised.value.message
+    assert raised.value.message.endswith(
+        ": Rate limit exceeded for ***: free-models-per-day"
+    )

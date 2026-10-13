@@ -6,6 +6,8 @@ dependencies = [
     "beautifulsoup4==4.15.0",
     "chatlas==0.23.0",
     "configobj==5.0.9",
+    # already installed for the Keycloak client, pinned here for encrypting users' provider keys
+    "cryptography==50.0.0",
     "crawlee[beautifulsoup]==1.9.3",
     "fastapi[standard]==0.141.1",
     "lxml==6.1.2",
@@ -15,6 +17,8 @@ dependencies = [
     "aiofiles==25.1.0",
     "requests==2.34.2",
     "semantic-text-splitter==0.32.0",
+    "tiktoken==0.14.0",
+    "tokenizers==0.23.2",
     "trafilatura==2.2.0",
     "httpx-sse==0.4.3",
     "isi-util",

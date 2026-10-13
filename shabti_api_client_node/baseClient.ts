@@ -316,6 +316,13 @@ export class BaseShabtiClient {
 		return json.running;
 	}
 
+	// whether the embeddings model can be reached and still makes the vectors it did
+	async embeddingsStatus(): Promise<boolean> {
+		const res = await this.makeRequest("GET", "status/embeddings");
+		const json = (await res.json()) as any;
+		return json.running;
+	}
+
 	async opensearchStatus(): Promise<boolean> {
 		const res = await this.makeRequest("GET", "status/opensearch");
 		const json = (await res.json()) as any;

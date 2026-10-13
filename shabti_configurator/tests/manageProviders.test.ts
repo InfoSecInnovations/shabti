@@ -130,4 +130,35 @@ describe("manageProviders", () => {
 		).rejects.toThrow("There is already a model provider called Remote.");
 		expect(await readProviders()).toEqual(before);
 	});
+
+	test("won't remove the provider that embeds", async () => {
+		const { config, keys } = await readProviders();
+		await writeProviders(
+			{ ...config, embeddings: { model: "remote/text-embed" } },
+			keys,
+		);
+		const before = await readProviders();
+		await expect(
+			drain(manageProviders(form({ remove_provider: "remote" }))),
+		).rejects.toThrow("The embeddings provider can't be removed.");
+		expect(await readProviders()).toEqual(before);
+	});
+
+	test("keeps the embeddings model through other changes", async () => {
+		const { config, keys } = await readProviders();
+		await writeProviders(
+			{
+				...config,
+				embeddings: { model: "remote/text-embed", dimensions: 256 },
+			},
+			keys,
+		);
+		await drain(
+			manageProviders(form({ remove_provider: "other", key_remote: "sk-new" })),
+		);
+		expect((await readProviders()).config.embeddings).toEqual({
+			model: "remote/text-embed",
+			dimensions: 256,
+		});
+	});
 });

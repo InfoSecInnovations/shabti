@@ -9,7 +9,7 @@ import stopWatchProcess from "./stopWatchProcess";
 // updates the settings of an existing installation without going through a full reinstall.
 // Each settings area is its own form, so we only merge in the values that area owns rather
 // than rewriting the whole environment
-const applySettings = async function* (
+export const applySettings = async function* (
 	updates: { [key: string]: string },
 	state: { watchProcess?: Bun.Subprocess },
 ) {

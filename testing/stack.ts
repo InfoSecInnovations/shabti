@@ -1,6 +1,9 @@
 import { $ } from "bun";
 import path from "node:path";
-import type { ModelSelection } from "../shabti_configurator/getDefaultModelSelection";
+import {
+	localModels,
+	type ModelSelection,
+} from "../shabti_configurator/getDefaultModelSelection";
 import downloadModel from "../shabti_configurator/server/downloadModel";
 import writeModelsIni from "../shabti_configurator/server/writeModelsIni";
 import writeProviders, {
@@ -144,6 +147,7 @@ export const writeTestModelsIni = () =>
  * The test llama.cpp again, as a remote provider would be configured: through its OpenAI-compatible
  * API, with a key it ignores. That exercises the generic provider path without reaching anything
  * outside the stack. Only the chat models are allowed, as llama.cpp lists the embeddings model too.
+ * The API's remote embeddings test embeds through it as well, with settings of its own.
  */
 export const STUB_PROVIDER = "stub";
 
@@ -177,10 +181,7 @@ export const preloadModels = async (testType: TestType) => {
 	);
 	if (started.code !== 0) return started;
 	try {
-		for (const modelName of [
-			...TEST_MODELS.chatModels,
-			TEST_MODELS.embeddingsModel,
-		]) {
+		for (const modelName of localModels(TEST_MODELS)) {
 			// every 10% of each file, so a large download shows it is moving without flooding the output
 			const reported = new Map<string, number>();
 			for await (const { progress, total, file } of downloadModel(modelName)) {

@@ -7,6 +7,7 @@ from shabti_types import TaskInfo, PromptConfigInfo, CollectionInfo, ProviderMod
 from .doc_page_link import page_link, source_label
 from typing import TypeVar
 from .load_models import load_models
+from .request_errors import request_error_text
 from .toasts import show_message
 from chatlas.types import (
     ContentThinkingDelta,
@@ -61,7 +62,7 @@ def prompter_server(
     collections: reactive.Value[CollectionsData[TCollectionInfo]],
     api_status: reactive.Value,
     opensearch_status: reactive.Value,
-    llm_status: reactive.Value,
+    embeddings_status: reactive.Value,
     collection_selector_server,
 ):
     llm_loaded = reactive.value(False)
@@ -119,8 +120,12 @@ def prompter_server(
 
     @reactive.extended_task
     async def load_embeddings_model():
+        # only a local embeddings model has to be loaded, see the ingester
+        if not any(x.id == "local" for x in await client.get_providers()):
+            return
         models = await client.get_models(tags=["embeddings"])
-        await load_models(client, models["data"][0]["id"])
+        if models["data"]:
+            await load_models(client, models["data"][0]["id"])
 
     @reactive.effect
     def load_embeddings_model_effect():
@@ -152,14 +157,14 @@ def prompter_server(
 
     @reactive.effect
     def init():
-        if llm_status.get() and chat_models.get() is None:
+        if embeddings_status.get() and chat_models.get() is None:
             init_models()
 
     @render.ui
     def prompter_ui():
         loaded = (
             llm_loaded.get()
-            and llm_status.get()
+            and embeddings_status.get()
             and opensearch_status.get()
             and tasks.get()
         )
@@ -169,7 +174,11 @@ def prompter_server(
                     "Please create a collection and ingest some documents into it first!"
                 )
             return ui.output_ui("chat_area")
-        if not api_status.get() or not llm_status.get() or not opensearch_status.get():
+        if (
+            not api_status.get()
+            or not embeddings_status.get()
+            or not opensearch_status.get()
+        ):
             return ui.markdown("Requirements are not online, see sidebar!")
         if not tasks.get():
             return ui.markdown("Loading prompter config, please wait...")
@@ -310,11 +319,7 @@ def prompter_server(
                     show_message(x.error, type="danger")
         # refused before streaming, such as for a model another user has since swapped out
         except ShabtiRequestError as e:
-            body = e.message["message"]
-            show_message(
-                body.get("detail", str(body)) if isinstance(body, dict) else str(body),
-                type="danger",
-            )
+            show_message(request_error_text(e), type="danger")
         finally:
             if file_path:
                 os.remove(file_path)

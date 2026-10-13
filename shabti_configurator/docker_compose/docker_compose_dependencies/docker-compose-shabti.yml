@@ -4,7 +4,8 @@ services:
     container_name: shabti
     environment:
       - OPENSEARCH_HOST=opensearch-node1
-      - LLM_HOST=llama_cpp
+      # empty for an installation whose models are all remote, which has no llama.cpp
+      - LLM_HOST=${LLM_HOST-llama_cpp}
       - MODEL_LOADER_HOST=huggingface-downloader
       - SHABTI_SECURITY_ENABLED=False
       - SHABTI_LOGGING_ENABLED=False
@@ -28,8 +29,8 @@ services:
       interval: 10s
       timeout: 10s
       retries: 3
-      # docker_run.py doesn't start the server until llama.cpp answers, which can take a long while
-      # on a cold start
+      # docker_run.py doesn't start the server until llama.cpp answers, if there is one, which can
+      # take a long while on a cold start
       start_period: 15m
       start_interval: 2s
     restart: unless-stopped

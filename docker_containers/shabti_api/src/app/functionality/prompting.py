@@ -2,7 +2,7 @@ import httpx
 import openai
 from chatlas import ChatOpenAICompletions
 from .providers.config import LOCAL
-from .providers.errors import provider_error
+from .providers.errors import provider_error, upstream_detail
 from .providers.registry import ChatModel
 
 # a remote API that stops answering has failed, however long the answer it was writing
@@ -66,5 +66,11 @@ async def stream_response(
         ):
             yield x
     except openai.APIError as e:
-        status = e.status_code if isinstance(e, openai.APIStatusError) else None
-        raise provider_error(status, model.id) from e
+        responded = isinstance(e, openai.APIStatusError)
+        raise provider_error(
+            e.status_code if responded else None,
+            model.id,
+            purpose="chat",
+            # the parsed error rather than e.message, which carries the whole response
+            detail=upstream_detail(e.body, api_key) if responded else None,
+        ) from e

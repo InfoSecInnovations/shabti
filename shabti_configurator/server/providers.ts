@@ -1,4 +1,5 @@
 import { HTTPException } from "hono/http-exception";
+import type { RemoteEmbeddings } from "../getDefaultModelSelection";
 import { LOCAL_PROVIDER, providerId, qualify } from "../providerIds";
 import type { ProviderConfig, ProvidersConfig } from "./writeProviders";
 
@@ -46,7 +47,7 @@ export const parseHeaders = (raw: string) =>
 	);
 
 export type TestResult =
-	| { baseUrl: string; models: string[] }
+	| { baseUrl: string; models: string[]; embeddingsModels: string[] }
 	| { error: string; hint?: string };
 
 // most OpenAI-compatible APIs are versioned, and a base URL without the version is the usual mistake
@@ -54,6 +55,66 @@ const versionHint = (baseUrl: string) =>
 	/\/v\d+[a-z]*$/.test(baseUrl)
 		? undefined
 		: "Most providers' base URLs end in a version, such as /v1.";
+
+type ListedModel = {
+	id: unknown;
+	architecture?: { output_modalities?: unknown };
+};
+
+const listModels = (
+	url: string,
+	headers: Record<string, string>,
+	key?: string,
+) =>
+	fetch(url, {
+		headers: {
+			...headers,
+			...(key ? { Authorization: `Bearer ${key}` } : {}),
+		},
+		// the key would follow a redirect wherever it pointed
+		redirect: "manual",
+		signal: AbortSignal.timeout(TIMEOUT_MS),
+	});
+
+type NamedModel = ListedModel & { id: string };
+
+const modelList = async (response: Response) =>
+	((await response.json()) as { data: ListedModel[] }).data.filter(
+		(model): model is NamedModel => typeof model.id == "string",
+	);
+
+/**
+ * The models a provider lists apart from its others, which OpenRouter does with its embeddings
+ * models: its /models leaves them out. Not part of the OpenAI API, so a provider without the
+ * endpoint just has none listed there.
+ */
+const separateEmbeddingsModels = async (
+	baseUrl: string,
+	headers: Record<string, string>,
+	key?: string,
+) => {
+	try {
+		const response = await listModels(
+			`${baseUrl}/embeddings/models`,
+			headers,
+			key,
+		);
+		if (response.status != 200) return [];
+		return (await modelList(response)).map((model) => model.id);
+	} catch {
+		return [];
+	}
+};
+
+// the same rule the API uses to tell an embeddings model from a chat model, plus what a listing
+// that describes its models says
+const isEmbeddingsModel = (model: NamedModel) =>
+	model.id.toLowerCase().includes("embed") ||
+	(Array.isArray(model.architecture?.output_modalities) &&
+		model.architecture.output_modalities.includes("embeddings"));
+
+const sorted = (ids: Iterable<string>) =>
+	[...new Set(ids)].sort((a, b) => a.localeCompare(b));
 
 /**
  * Asks the provider for its models the way the API will, so a wrong URL or key shows up here
@@ -75,15 +136,7 @@ export const testProvider = async (options: {
 	}
 	let response: Response;
 	try {
-		response = await fetch(`${baseUrl}/models`, {
-			headers: {
-				...headers,
-				...(options.key ? { Authorization: `Bearer ${options.key}` } : {}),
-			},
-			// the key would follow a redirect wherever it pointed
-			redirect: "manual",
-			signal: AbortSignal.timeout(TIMEOUT_MS),
-		});
+		response = await listModels(`${baseUrl}/models`, headers, options.key);
 	} catch {
 		return { error: `Couldn't reach ${baseUrl}.` };
 	}
@@ -94,29 +147,36 @@ export const testProvider = async (options: {
 			error: `${baseUrl}/models answered with status ${response.status}.`,
 			hint: versionHint(baseUrl),
 		};
+	let listed: NamedModel[];
 	try {
-		const body = (await response.json()) as { data: { id: unknown }[] };
-		const models = body.data
-			.map((model) => model.id)
-			.filter((id): id is string => typeof id == "string")
-			.sort((a, b) => a.localeCompare(b));
-		return { baseUrl, models };
+		listed = await modelList(response);
 	} catch {
 		return {
 			error: `${baseUrl}/models didn't list any models.`,
 			hint: versionHint(baseUrl),
 		};
 	}
+	const embeddingsModels = sorted([
+		...(await separateEmbeddingsModels(baseUrl, headers, options.key)),
+		...listed.filter(isEmbeddingsModel).map((model) => model.id),
+	]);
+	const models = sorted(
+		listed
+			.map((model) => model.id)
+			.filter((id) => !embeddingsModels.includes(id)),
+	);
+	return { baseUrl, models, embeddingsModels };
 };
 
 /**
  * The provider a form adds, from the fields ProviderFieldset renders, or undefined when they
  * were left empty. Checked before an install or a change touches anything, so a mistake leaves
- * things as they were.
+ * things as they were. One added only to embed with offers none of its chat models.
  */
 export const providerFromForm = (
 	form: FormData,
 	existingIds: string[],
+	embedsOnly = false,
 ): { provider: ProviderConfig; key?: string } | undefined => {
 	const field = (name: string) => form.get(name)?.toString().trim() ?? "";
 	const name = field("provider_name");
@@ -131,7 +191,7 @@ export const providerFromForm = (
 		throw invalid(`There is already a model provider called ${name}.`);
 	if (!baseUrl) throw invalid(`Give ${name} a base URL.`);
 	const models = form.getAll("provider_model").map((v) => v.toString());
-	if (!models.length)
+	if (!models.length && !embedsOnly)
 		throw invalid(
 			`Test the connection to ${name} and choose at least one of its models.`,
 		);
@@ -143,11 +203,80 @@ export const providerFromForm = (
 			name,
 			base_url: normaliseBaseUrl(baseUrl),
 			...(Object.keys(headers).length ? { headers } : {}),
+			// an empty list rather than none, which would offer every model it lists
 			models: { allow: models },
 		},
 		...(key ? { key } : {}),
 	};
 };
+
+// what a provider's embeddings model is set up with when the admin doesn't say. a chunk is a passage
+// someone gets shown, and a remote model is metered and rate limited per request
+export const DEFAULT_REMOTE_CHUNK_SIZE = 512;
+export const DEFAULT_REMOTE_BATCH_SIZE = 64;
+
+export const TOKENIZERS = [
+	"estimate",
+	"tiktoken:cl100k_base",
+	"tiktoken:o200k_base",
+	"hf",
+];
+
+const wholeNumber = (raw: string, label: string) => {
+	if (!raw) return undefined;
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < 1)
+		throw invalid(`${label} must be a whole number above zero.`);
+	return value;
+};
+
+/**
+ * The provider's model the install embeds with, from the embeddings fields of the install form, or
+ * undefined to embed with a local model. The provider is the one the same form adds, since there
+ * is no other before Shabti is installed.
+ */
+export const remoteEmbeddingsFromForm = (
+	form: FormData,
+	provider: ProviderConfig | undefined,
+): RemoteEmbeddings | undefined => {
+	const field = (name: string) => form.get(name)?.toString().trim() ?? "";
+	if (field("embeddings_source") != "provider") return undefined;
+	if (!provider) throw invalid("Add a model provider to embed with it.");
+	const model = field("remote_embeddings_model");
+	if (!model)
+		throw invalid(
+			`Test the connection to ${provider.name} and choose its embeddings model.`,
+		);
+	let tokenizer = field("embeddings_tokenizer") || "estimate";
+	if (!TOKENIZERS.includes(tokenizer))
+		throw invalid(`${tokenizer} is not a tokenizer Shabti knows about.`);
+	if (tokenizer == "hf") {
+		const repo = field("embeddings_tokenizer_repo");
+		if (!/^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/.test(repo))
+			throw invalid(
+				"Give the Hugging Face repository the tokenizer comes from, as owner/name.",
+			);
+		tokenizer = `hf:${repo}`;
+	}
+	const dimensions = wholeNumber(field("embeddings_dimensions"), "Dimensions");
+	return {
+		model: qualify(provider.id, model),
+		...(dimensions ? { dimensions } : {}),
+		settings: {
+			chunk_size:
+				wholeNumber(field("embeddings_chunk_size"), "Chunk size") ??
+				DEFAULT_REMOTE_CHUNK_SIZE,
+			tokenizer,
+			batch_size:
+				wholeNumber(field("embeddings_batch_size"), "Batch size") ??
+				DEFAULT_REMOTE_BATCH_SIZE,
+		},
+	};
+};
+
+/** the Hugging Face repository a tokenizer setting names, if it names one */
+export const tokenizerRepo = (tokenizer: string) =>
+	tokenizer.startsWith("hf:") ? tokenizer.slice(3) : undefined;
 
 /** every model the configured providers offer, qualified as the API names them */
 export const remoteModels = (config: ProvidersConfig) =>

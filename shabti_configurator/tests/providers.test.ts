@@ -5,6 +5,7 @@ import {
 	normaliseBaseUrl,
 	parseHeaders,
 	providerFromForm,
+	remoteEmbeddingsFromForm,
 	remoteModels,
 	resolveDefaultModel,
 	testProvider,
@@ -84,7 +85,67 @@ describe("testProvider", () => {
 		);
 		expect(
 			await testProvider({ baseUrl: "https://api.test/v1/chat/completions" }),
-		).toEqual({ baseUrl: "https://api.test/v1", models: ["a", "b"] });
+		).toEqual({
+			baseUrl: "https://api.test/v1",
+			models: ["a", "b"],
+			embeddingsModels: [],
+		});
+	});
+
+	test("finds the embeddings models a provider lists apart from the rest", async () => {
+		// OpenRouter's /models leaves them out
+		mockFetch((url) =>
+			url == "https://api.test/v1/models"
+				? json({ data: [{ id: "openai/gpt-4o" }] })
+				: url == "https://api.test/v1/embeddings/models"
+					? json({
+							data: [
+								{ id: "nvidia/llama-nemotron-embed-vl-1b-v2:free" },
+								{ id: "voyageai/voyage-code-4" },
+							],
+						})
+					: undefined,
+		);
+		expect(await testProvider({ baseUrl: "https://api.test/v1" })).toEqual({
+			baseUrl: "https://api.test/v1",
+			models: ["openai/gpt-4o"],
+			embeddingsModels: [
+				"nvidia/llama-nemotron-embed-vl-1b-v2:free",
+				"voyageai/voyage-code-4",
+			],
+		});
+	});
+
+	test("tells the embeddings models in one listing apart from the chat models", async () => {
+		mockFetch((url) =>
+			url == "https://api.test/v1/models"
+				? json({
+						data: [
+							{ id: "gpt-4o" },
+							{ id: "text-embedding-3-small" },
+							{
+								id: "voyage-3",
+								architecture: { output_modalities: ["embeddings"] },
+							},
+						],
+					})
+				: new Response("not found", { status: 404 }),
+		);
+		expect(await testProvider({ baseUrl: "https://api.test/v1" })).toEqual({
+			baseUrl: "https://api.test/v1",
+			models: ["gpt-4o"],
+			embeddingsModels: ["text-embedding-3-small", "voyage-3"],
+		});
+	});
+
+	test("lists a model only once when both listings name it", async () => {
+		mockFetch(() => json({ data: [{ id: "text-embed" }] }));
+		const result = await testProvider({ baseUrl: "https://api.test/v1" });
+		expect(result).toEqual({
+			baseUrl: "https://api.test/v1",
+			models: [],
+			embeddingsModels: ["text-embed"],
+		});
 	});
 
 	test("sends the key and headers, and follows no redirect", async () => {
@@ -95,12 +156,19 @@ describe("testProvider", () => {
 			key: "sk-1",
 			headers: "X-Title: Shabti",
 		});
-		const init = fetchSpy.mock.calls[0]![1]!;
-		expect(init.headers).toEqual({
-			"X-Title": "Shabti",
-			Authorization: "Bearer sk-1",
-		});
-		expect(init.redirect).toBe("manual");
+		// both listings, the embeddings one too
+		expect(fetchSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+			"https://api.test/v1/models",
+			"https://api.test/v1/embeddings/models",
+		]);
+		for (const call of fetchSpy.mock.calls) {
+			const init = call[1]!;
+			expect(init.headers).toEqual({
+				"X-Title": "Shabti",
+				Authorization: "Bearer sk-1",
+			});
+			expect(init.redirect).toBe("manual");
+		}
 	});
 
 	test("sends no authorization without a key", async () => {
@@ -159,7 +227,11 @@ describe("testProvider", () => {
 
 describe("the test-provider route", () => {
 	test("tests the provider it is sent", async () => {
-		mockFetch(() => json({ data: [{ id: "a" }] }));
+		mockFetch((url) =>
+			url.endsWith("/embeddings/models")
+				? new Response("not found", { status: 404 })
+				: json({ data: [{ id: "a" }] }),
+		);
 		const response = await providerRoutes.request("/test-provider", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -168,6 +240,7 @@ describe("the test-provider route", () => {
 		expect(await response.json()).toEqual({
 			baseUrl: "https://api.test/v1",
 			models: ["a"],
+			embeddingsModels: [],
 		});
 	});
 
@@ -228,6 +301,16 @@ describe("providerFromForm", () => {
 		).toThrow(message);
 	});
 
+	test("offers none of the chat models of a provider that only embeds", () => {
+		const added = providerFromForm(
+			form({ ...PROVIDER_FORM, provider_model: [] }),
+			[],
+			true,
+		);
+		// an empty list rather than none, which would offer every model the provider lists
+		expect(added?.provider.models).toEqual({ allow: [] });
+	});
+
 	test("refuses a name another provider has", () => {
 		expect(() =>
 			providerFromForm(form(PROVIDER_FORM), ["open-router"]),
@@ -275,4 +358,100 @@ describe("the default chat model", () => {
 			});
 		},
 	);
+});
+
+describe("remoteEmbeddingsFromForm", () => {
+	const PROVIDER = {
+		id: "acme",
+		name: "Acme",
+		base_url: "https://api.acme.test/v1",
+	};
+
+	test("is nothing when the embeddings are local", () => {
+		expect(
+			remoteEmbeddingsFromForm(form({ embeddings_source: "local" }), PROVIDER),
+		).toBeUndefined();
+		expect(remoteEmbeddingsFromForm(form({}), PROVIDER)).toBeUndefined();
+	});
+
+	test("names the provider's model, with defaults for what wasn't given", () => {
+		expect(
+			remoteEmbeddingsFromForm(
+				form({
+					embeddings_source: "provider",
+					remote_embeddings_model: "text-embed-3",
+					embeddings_dimensions: "",
+					embeddings_chunk_size: "",
+					embeddings_batch_size: "",
+				}),
+				PROVIDER,
+			),
+		).toEqual({
+			model: "acme/text-embed-3",
+			settings: { chunk_size: 512, tokenizer: "estimate", batch_size: 64 },
+		});
+	});
+
+	test("reads everything the admin gave", () => {
+		expect(
+			remoteEmbeddingsFromForm(
+				form({
+					embeddings_source: "provider",
+					remote_embeddings_model: "text-embed-3",
+					embeddings_dimensions: "256",
+					embeddings_chunk_size: "1024",
+					embeddings_tokenizer: "tiktoken:cl100k_base",
+					embeddings_batch_size: "16",
+				}),
+				PROVIDER,
+			),
+		).toEqual({
+			model: "acme/text-embed-3",
+			dimensions: 256,
+			settings: {
+				chunk_size: 1024,
+				tokenizer: "tiktoken:cl100k_base",
+				batch_size: 16,
+			},
+		});
+	});
+
+	test("names a Hugging Face tokenizer by its repository", () => {
+		const embeddings = remoteEmbeddingsFromForm(
+			form({
+				embeddings_source: "provider",
+				remote_embeddings_model: "bge-m3",
+				embeddings_tokenizer: "hf",
+				embeddings_tokenizer_repo: "BAAI/bge-m3",
+			}),
+			PROVIDER,
+		);
+		expect(embeddings?.settings.tokenizer).toBe("hf:BAAI/bge-m3");
+	});
+
+	test.each([
+		[{}, "Add a model provider"],
+		[{ remote_embeddings_model: "" }, "choose its embeddings model"],
+		[{ embeddings_tokenizer: "sentencepiece" }, "not a tokenizer"],
+		[{ embeddings_tokenizer: "hf" }, "as owner/name"],
+		[
+			{ embeddings_tokenizer: "hf", embeddings_tokenizer_repo: "../x" },
+			"as owner/name",
+		],
+		[{ embeddings_chunk_size: "0" }, "Chunk size"],
+		[{ embeddings_batch_size: "1.5" }, "Batch size"],
+		[{ embeddings_dimensions: "many" }, "Dimensions"],
+	])("refuses %p", (fields, message) => {
+		const provider = Object.keys(fields).length ? PROVIDER : undefined;
+		expect(() =>
+			remoteEmbeddingsFromForm(
+				form({
+					embeddings_source: "provider",
+					remote_embeddings_model: "text-embed-3",
+					...fields,
+				}),
+				provider,
+			),
+		).toThrow(message);
+	});
 });

@@ -7,6 +7,10 @@ import listCompatibleVersions from "./listCompatibleVersions";
 import { ConnectivityNotice } from "./connectivityNotice";
 import { ChatModelSelector, resolveModelSelection } from "./chatModelSelector";
 import { ProviderFieldset } from "./providerFieldset";
+import {
+	DEFAULT_REMOTE_BATCH_SIZE,
+	DEFAULT_REMOTE_CHUNK_SIZE,
+} from "./providers";
 
 export const InstallOptionsForm = async (props: {
 	devMode: boolean;
@@ -63,6 +67,15 @@ export const InstallOptionsForm = async (props: {
 					defaultModel={selection.defaultModel}
 				></ChatModelSelector>
 				<p>
+					<label for="embeddings_source">Embeddings Source</label>
+					<select name="embeddings_source" id="embeddings_source">
+						<option value="local" selected>
+							Local
+						</option>
+						<option value="provider">Model Provider</option>
+					</select>
+				</p>
+				<p id="local_embeddings">
 					<label for="embeddings_model">Select Embeddings Model</label>
 					<select name="embeddings_model" id="embeddings_model">
 						{embeddingsModels.map((k) => (
@@ -72,6 +85,77 @@ export const InstallOptionsForm = async (props: {
 						))}
 					</select>
 				</p>
+				<div id="remote_embeddings" class="hidden">
+					<p>
+						<label for="remote_embeddings_model">Embeddings Model</label>
+						<select
+							name="remote_embeddings_model"
+							id="remote_embeddings_model"
+						></select>
+					</p>
+					<p>
+						<small>
+							Test the connection to the model provider, then search its models.
+						</small>
+					</p>
+					<p>
+						<label for="embeddings_dimensions">Dimensions</label>
+						<input
+							type="number"
+							min="1"
+							id="embeddings_dimensions"
+							name="embeddings_dimensions"
+							placeholder="the model's own"
+						></input>
+					</p>
+					<p>
+						<label for="embeddings_chunk_size">Chunk Size</label>
+						<input
+							type="number"
+							min="1"
+							id="embeddings_chunk_size"
+							name="embeddings_chunk_size"
+							value={String(DEFAULT_REMOTE_CHUNK_SIZE)}
+						></input>
+					</p>
+					<p>
+						<label for="embeddings_tokenizer">Tokenizer</label>
+						<select name="embeddings_tokenizer" id="embeddings_tokenizer">
+							<option value="estimate" selected>
+								Estimate
+							</option>
+							<option value="tiktoken:cl100k_base">tiktoken cl100k_base</option>
+							<option value="tiktoken:o200k_base">tiktoken o200k_base</option>
+							<option value="hf">Hugging Face</option>
+						</select>
+					</p>
+					<p id="embeddings_tokenizer_repo_container" class="hidden">
+						<label for="embeddings_tokenizer_repo">
+							Hugging Face Repository
+						</label>
+						<input
+							type="text"
+							id="embeddings_tokenizer_repo"
+							name="embeddings_tokenizer_repo"
+							placeholder="owner/name"
+						></input>
+					</p>
+					<p>
+						<label for="embeddings_batch_size">Batch Size</label>
+						<input
+							type="number"
+							min="1"
+							id="embeddings_batch_size"
+							name="embeddings_batch_size"
+							value={String(DEFAULT_REMOTE_BATCH_SIZE)}
+						></input>
+					</p>
+					<p class="error">
+						Every document you ingest will be sent to the provider. If the
+						provider changes or retires the model, documents must be
+						re-ingested, so pick a pinned model version where one is offered.
+					</p>
+				</div>
 				<p>
 					<small>
 						The language model which will be used to vectorize documents. This

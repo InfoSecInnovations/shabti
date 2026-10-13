@@ -1,23 +1,45 @@
-import getDefaultModelSelection from "../getDefaultModelSelection";
+import getDefaultModelSelection, {
+	localModels,
+	type ModelSelection,
+} from "../getDefaultModelSelection";
+import getEnvs from "./getEnvs";
 import { requireModels } from "./listDownloadedModels";
+import { llamaCppEnv, needsLlamaCpp, usesLlamaCpp } from "./llamaCpp";
 import logMessage from "./logMessage";
+import { applySettings } from "./manageSettings";
 import modelDownloadProgress from "./modelDownloadProgress";
 import readModelsIni from "./readModelsIni";
 import { startLlamaCpp, stopLlamaCpp } from "./restartLlamaCpp";
-import writeModelsIni from "./writeModelsIni";
+import writeModelsIni, { readShabtiModels } from "./writeModelsIni";
 import { remoteModels, resolveDefaultModel } from "./providers";
 import writeProviders, { readProviders } from "./writeProviders";
 
 // updates the chat models available to an existing installation without going through a
 // full reinstall
-export default async function* (options: FormData) {
+export default async function* (
+	options: FormData,
+	state: { watchProcess?: Bun.Subprocess },
+) {
 	// no chat model is a valid choice, it leaves Shabti only able to search
 	const chatModels = options.getAll("language_model").map((v) => v.toString());
 	const current = await readModelsIni();
-	const embeddingsModel =
-		current?.embeddingsModel ||
-		(await getDefaultModelSelection()).embeddingsModel;
 	const providers = await readProviders();
+	// the embeddings model is fixed at install, so it is carried over as it was recorded
+	const remote = providers.config.embeddings;
+	const selection: ModelSelection = remote
+		? {
+				chatModels,
+				remoteEmbeddings: {
+					...remote,
+					settings: (await readShabtiModels())[remote.model],
+				},
+			}
+		: {
+				chatModels,
+				embeddingsModel:
+					current?.embeddingsModel ||
+					(await getDefaultModelSelection()).embeddingsModel,
+			};
 	// the selector isn't rendered when there's only one model, and the previous default may
 	// have just been deselected
 	const { defaultModel, defaultChatModel } = resolveDefaultModel(
@@ -25,14 +47,17 @@ export default async function* (options: FormData) {
 		chatModels,
 		remoteModels(providers.config),
 	);
+	selection.defaultModel = defaultModel;
 	const added = chatModels.filter(
 		(model) => !current?.chatModels.includes(model),
 	);
 	const removed = (current?.chatModels || []).filter(
 		(model) => !chatModels.includes(model),
 	);
+	const wasUsing = usesLlamaCpp(await getEnvs());
+	const using = needsLlamaCpp(chatModels, !!remote);
 	// before anything is stopped, so an offline change that can't work leaves things as they were
-	const online = await requireModels([...chatModels, embeddingsModel]);
+	const online = await requireModels(localModels(selection));
 	if (added.length) yield logMessage(`adding models: ${added.join(", ")}`);
 	if (removed.length)
 		yield logMessage(`removing models: ${removed.join(", ")}`);
@@ -42,11 +67,13 @@ export default async function* (options: FormData) {
 			? `the default chat model will be ${chosenDefault}.`
 			: "no chat model is selected, Shabti will only be able to search.",
 	);
-	yield logMessage(
-		"stopping the LLM service so the model configuration can be updated...",
-	);
-	await stopLlamaCpp();
-	await writeModelsIni({ chatModels, embeddingsModel, defaultModel });
+	if (wasUsing) {
+		yield logMessage(
+			"stopping the LLM service so the model configuration can be updated...",
+		);
+		await stopLlamaCpp();
+	}
+	await writeModelsIni(selection);
 	// the API reads the providers' default before llama.cpp's, so a local one has to clear it
 	const { default_chat_model: _, ...config } = providers.config;
 	await writeProviders(
@@ -56,15 +83,28 @@ export default async function* (options: FormData) {
 		},
 		providers.keys,
 	);
-	yield logMessage("relaunching the LLM service...");
-	yield* startLlamaCpp();
-	// we run this over every selected model rather than just the new ones because it's cheap,
-	// downloadModel returns straight away if Llama.cpp already has the model, and it repairs
-	// the case where a model is in the ini file but was never successfully downloaded.
-	// offline, requireModels has already confirmed they're all downloaded
-	if (online) {
-		for (const modelName of [...chatModels, embeddingsModel])
-			yield* modelDownloadProgress(modelName);
+	if (using != wasUsing) {
+		yield logMessage(
+			using
+				? "adding the LLM service to Shabti for the local models..."
+				: "removing the LLM service from Shabti, as every model is now remote...",
+		);
+		const updates = llamaCppEnv(using);
+		// compose reads the configurator's own environment ahead of the file
+		Object.assign(process.env, updates);
+		yield* applySettings(updates, state);
+	}
+	if (using) {
+		yield logMessage("relaunching the LLM service...");
+		yield* startLlamaCpp();
+		// we run this over every selected model rather than just the new ones because it's cheap,
+		// downloadModel returns straight away if Llama.cpp already has the model, and it repairs
+		// the case where a model is in the ini file but was never successfully downloaded.
+		// offline, requireModels has already confirmed they're all downloaded
+		if (online) {
+			for (const modelName of localModels(selection))
+				yield* modelDownloadProgress(modelName);
+		}
 	}
 	if (removed.length)
 		yield logMessage(

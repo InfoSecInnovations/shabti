@@ -5,7 +5,8 @@ import { getModelsIniPath } from "./writeModelsIni";
 
 // reads back the selection written by writeModelsIni so we can display and edit the current
 // configuration, returns undefined if there's nothing usable in there so callers can fall
-// back to getDefaultModelSelection
+// back to getDefaultModelSelection. An installation embedding through a provider has no local
+// embeddings model, which leaves it out rather than making the file unusable
 export default async (
 	baseDir?: string,
 ): Promise<ModelSelection | undefined> => {
@@ -43,7 +44,6 @@ export default async (
 	const embeddingsModel = entries.find(([_, v]) =>
 		v.includes("embeddings"),
 	)?.[0];
-	if (!embeddingsModel) return undefined;
 	return {
 		chatModels,
 		embeddingsModel,

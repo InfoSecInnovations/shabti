@@ -4,7 +4,8 @@ import * as ini from "@std/ini";
 import { HTTPException } from "hono/http-exception";
 import _ from "lodash";
 import getModelsConfig from "../getModelsConfig";
-import type { ModelSelection } from "../getDefaultModelSelection";
+import { localModels, type ModelSelection } from "../getDefaultModelSelection";
+import { LOCAL_PROVIDER, qualify } from "../providerIds";
 
 // keys the catalogue carries for Shabti's own use rather than for llama.cpp. llama.cpp treats an
 // unrecognised preset key as a fatal error rather than ignoring it, so leaving one of these in the
@@ -94,7 +95,7 @@ const DEFAULT_CHUNK_SIZE = 128;
 
 // the compiled installer unzips docker_compose next to the working directory,
 // so this stays relative to the cwd by default like getEnvPath does
-const getLlamaModelsDir = (baseDir = path.resolve()) =>
+export const getLlamaModelsDir = (baseDir = path.resolve()) =>
 	path.join(
 		baseDir,
 		"docker_compose",
@@ -110,10 +111,19 @@ export const getModelsIniPath = (baseDir = path.resolve()) =>
  * use for and would refuse to start over. Written next to my-models.ini and mounted into the API
  * container, rather than passed through the environment file, so that everything which configures
  * models goes through this one function: the test harness and the post-install model management
- * page both already call it, and neither touches the environment file.
+ * page both already call it, and neither touches the environment file. Keyed by the qualified
+ * model id, as a provider's embeddings model is recorded here too.
  */
 export const getShabtiModelsPath = (baseDir = path.resolve()) =>
 	path.join(getLlamaModelsDir(baseDir), "shabti-models.json");
+
+/** what writeModelsIni last recorded for the API, by qualified model id */
+export const readShabtiModels = async (
+	baseDir = path.resolve(),
+): Promise<Record<string, any>> => {
+	const file = Bun.file(getShabtiModelsPath(baseDir));
+	return (await file.exists()) ? await file.json() : {};
+};
 
 const shabtiSettings = (modelName: string, modelData: Record<string, any>) =>
 	Object.entries(modelData).reduce(
@@ -167,9 +177,16 @@ export const buildModelsConfig = (
 	selection: ModelSelection,
 	shabtiModels: Record<string, any>,
 ) => {
-	const { chatModels, embeddingsModel, defaultModel } = selection;
+	const { chatModels, defaultModel, remoteEmbeddings } = selection;
+	const embeddingsModel = remoteEmbeddings
+		? undefined
+		: selection.embeddingsModel;
+	if (!remoteEmbeddings && !embeddingsModel)
+		throw new HTTPException(400, {
+			message: "no embeddings model is selected",
+		});
 	const settings: Record<string, any> = {};
-	const sections = [...chatModels, embeddingsModel].reduce(
+	const sections = localModels(selection).reduce(
 		(acc, key) => {
 			const modelData = _.cloneDeep(shabtiModels[key]);
 			if (!modelData)
@@ -182,25 +199,33 @@ export const buildModelsConfig = (
 			modelData.tags = tags.join(", "); // llama.cpp expects the tags in CSV
 			const shabti = shabtiSettings(key, modelData);
 			// only the models we know something about, so the file says what it carries
-			if (Object.keys(shabti).length) settings[key] = shabti;
+			if (Object.keys(shabti).length)
+				settings[qualify(LOCAL_PROVIDER, key)] = shabti;
 			return { ...acc, [key]: presetSection(key, modelData) };
 		},
 		{} as Record<string, any>,
 	);
 
-	// the splitter has no tokenizer to read a chunk size off: the GGUF repositories llama.cpp loads
-	// from don't carry one, and the model's own trained context is an architectural ceiling rather
-	// than a sensible chunk size, so this is decided here and recorded rather than inferred
-	const chunkSize = settings[embeddingsModel]?.chunk_size || DEFAULT_CHUNK_SIZE;
-	settings[embeddingsModel] = {
-		...settings[embeddingsModel],
-		chunk_size: chunkSize,
-	};
-
 	const globals: Record<string, any> = {
 		"ubatch-size": DEFAULT_UBATCH,
 		"batch-size": DEFAULT_BATCH,
 	};
+	if (!embeddingsModel) {
+		// a provider sizes its own batches, so all there is to record is what the installer was told
+		settings[remoteEmbeddings!.model] = remoteEmbeddings!.settings;
+		return { sections: { [GLOBAL_SECTION]: globals, ...sections }, settings };
+	}
+
+	// the splitter has no tokenizer to read a chunk size off: the GGUF repositories llama.cpp loads
+	// from don't carry one, and the model's own trained context is an architectural ceiling rather
+	// than a sensible chunk size, so this is decided here and recorded rather than inferred
+	const embeddingsKey = qualify(LOCAL_PROVIDER, embeddingsModel);
+	const chunkSize = settings[embeddingsKey]?.chunk_size || DEFAULT_CHUNK_SIZE;
+	settings[embeddingsKey] = {
+		...settings[embeddingsKey],
+		chunk_size: chunkSize,
+	};
+
 	const needed = chunkSize + UBATCH_HEADROOM;
 	// left to the catalogue entry if it sets the batch sizes itself. the logical batch is raised
 	// with the physical one so the two can never cross, which llama.cpp would otherwise resolve by

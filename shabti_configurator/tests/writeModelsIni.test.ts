@@ -116,8 +116,9 @@ describe("the preset sections llama.cpp reads", () => {
 describe("the settings the API reads", () => {
 	test("carry the chunk size as a number", () => {
 		// the ini parser hands every value back as a string, and this one is read as a number
+		// keyed by the qualified id, as a provider's embeddings model goes in here too
 		expect(build({ chat: CHAT, embed: EMBED }).settings).toEqual({
-			embed: { chunk_size: 128 },
+			"local/embed": { chunk_size: 128 },
 		});
 	});
 
@@ -129,20 +130,62 @@ describe("the settings the API reads", () => {
 			chat: CHAT,
 			embed: { hf: EMBED.hf, tags: "embeddings" },
 		});
-		expect(settings).toEqual({ embed: { chunk_size: 128 } });
+		expect(settings).toEqual({ "local/embed": { chunk_size: 128 } });
 		// and the default is small enough that the batch sizes don't have to move for it
 		expect(sections.embed["ubatch-size"]).toBeUndefined();
 	});
 
 	test("prefer the catalogue's chunk size to the default", () => {
 		expect(build({ chat: CHAT, embed: EMBED }).settings).toEqual({
-			embed: { chunk_size: 128 },
+			"local/embed": { chunk_size: 128 },
 		});
 		const { settings } = build({
 			chat: CHAT,
 			embed: { ...EMBED, shabti_chunk_size: "256" },
 		});
-		expect(settings).toEqual({ embed: { chunk_size: 256 } });
+		expect(settings).toEqual({ "local/embed": { chunk_size: 256 } });
+	});
+});
+
+describe("a provider's embeddings model", () => {
+	const REMOTE = {
+		chatModels: [],
+		remoteEmbeddings: {
+			model: "acme/text-embed",
+			settings: { chunk_size: 512, tokenizer: "estimate", batch_size: 64 },
+		},
+	};
+
+	test("is recorded for the API as the installer was told", () => {
+		const { settings } = build({ chat: CHAT, embed: EMBED }, REMOTE);
+		expect(settings).toEqual({
+			"acme/text-embed": {
+				chunk_size: 512,
+				tokenizer: "estimate",
+				batch_size: 64,
+			},
+		});
+	});
+
+	test("leaves llama.cpp nothing to serve without a chat model", () => {
+		const { sections } = build({ chat: CHAT, embed: EMBED }, REMOTE);
+		expect(Object.keys(sections)).toEqual(["*"]);
+	});
+
+	test("takes the place of a local one", () => {
+		// a form posts the local select whichever source was chosen
+		const { sections, settings } = build(
+			{ chat: CHAT, embed: EMBED },
+			{ ...REMOTE, chatModels: ["chat"], embeddingsModel: "embed" },
+		);
+		expect(Object.keys(sections)).toEqual(["*", "chat"]);
+		expect(Object.keys(settings)).toEqual(["acme/text-embed"]);
+	});
+
+	test("is needed when there is no local one", () => {
+		expect(() =>
+			build({ chat: CHAT, embed: EMBED }, { chatModels: ["chat"] }),
+		).toThrow("no embeddings model");
 	});
 });
 
@@ -164,7 +207,7 @@ describe("the prefixes a model wants on its input", () => {
 			},
 		});
 		// the space is the point: without it the instruction runs into the question
-		expect(settings.embed.query_prefix).toBe(
+		expect(settings["local/embed"].query_prefix).toBe(
 			"Represent this sentence for searching relevant passages: ",
 		);
 	});
@@ -180,7 +223,9 @@ describe("the prefixes a model wants on its input", () => {
 				shabti_query_prefix: JSON.stringify("Instruct: Retrieve.\nQuery: "),
 			},
 		});
-		expect(settings.embed.query_prefix).toBe("Instruct: Retrieve.\nQuery: ");
+		expect(settings["local/embed"].query_prefix).toBe(
+			"Instruct: Retrieve.\nQuery: ",
+		);
 	});
 
 	test("can be set on the document side too", () => {
@@ -194,7 +239,7 @@ describe("the prefixes a model wants on its input", () => {
 				shabti_document_prefix: '"search_document: "',
 			},
 		});
-		expect(settings.embed).toEqual({
+		expect(settings["local/embed"]).toEqual({
 			chunk_size: 128,
 			query_prefix: "search_query: ",
 			document_prefix: "search_document: ",
@@ -208,7 +253,7 @@ describe("the prefixes a model wants on its input", () => {
 			chat: CHAT,
 			embed: { ...EMBED, shabti_query_prefix: '""' },
 		});
-		expect(settings.embed.query_prefix).toBe("");
+		expect(settings["local/embed"].query_prefix).toBe("");
 	});
 
 	test("reject an unquoted prefix rather than trimming it", () => {
@@ -292,6 +337,23 @@ tags = embeddings
 		expect(await readModelsIni(baseDir)).toEqual({
 			chatModels: [defaultModel],
 			embeddingsModel,
+			defaultModel,
+		});
+	});
+
+	test("read back without an embeddings model, when a provider embeds", async () => {
+		const { defaultModel } = await getDefaultModelSelection();
+		const { baseDir } = await writeToTemp({
+			chatModels: [defaultModel!],
+			defaultModel,
+			remoteEmbeddings: {
+				model: "acme/text-embed",
+				settings: { chunk_size: 512, tokenizer: "estimate" },
+			},
+		});
+		expect(await readModelsIni(baseDir)).toEqual({
+			chatModels: [defaultModel],
+			embeddingsModel: undefined,
 			defaultModel,
 		});
 	});

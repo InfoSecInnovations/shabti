@@ -47,12 +47,14 @@ from .functionality.embeddings import (
     get_vector_dimension,
 )
 from .functionality.status import (
+    check_embeddings,
     check_llm,
     check_opensearch,
     check_provider,
     check_tika,
 )
 from .functionality.opensearch import close_client, sweep_ingesting_documents
+from .functionality import embeddings_fingerprint
 from .functionality.run_prompt import run_prompt
 from .functionality.load_prompter_config import load_prompter_config
 from .functionality.upload_prompt_file import upload_prompt_file
@@ -69,7 +71,7 @@ from .functionality.chat_model_selection import (
     set_chat_model_selection,
 )
 from collections.abc import AsyncIterable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 import asyncio
 from uuid import uuid4
 from .dependencies.auth_checker import AuthChecker
@@ -83,15 +85,21 @@ from .dependencies.required_services import RequiredServices
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # measuring the model's output size loads it, and creating the first collection would
-    # otherwise pay for that. not being able to reach the model at boot is not a reason to refuse
-    # to start
-    with suppress(Exception):
+    # otherwise pay for that. not being able to reach the model at boot, or a provider refusing
+    # its key, is not a reason to refuse to start
+    try:
         model_id = await asyncio.to_thread(get_embeddings_model_id)
         await asyncio.to_thread(get_vector_dimension)
         # after the probe, which is what has the model loaded: its trained context is only reported
         # for a running model, and reading it now is what makes the check on the configured chunk
         # size live for the first ingest rather than the second
         await asyncio.to_thread(context_limit, model_id)
+    except Exception as e:
+        logging.getLogger("shabti").warning(
+            "could not reach the embeddings model at startup: %s", type(e).__name__
+        )
+    # reports for itself, and leaves things as they were if the model can't be reached
+    await embeddings_fingerprint.verify(force=True)
     # documents an ingest was killed part way through: hidden from every listing by the flag they
     # still carry, so nothing else can ever reach them to clean them up. not being able to sweep is
     # no more a reason to refuse to start than the model above
@@ -244,7 +252,9 @@ def create_app():
         response_model_exclude_unset=True,
         status_code=201,
         dependencies=[
-            Depends(RequiredServices(Service.OPENSEARCH, Service.LLM, Service.TIKA)),
+            Depends(
+                RequiredServices(Service.OPENSEARCH, Service.EMBEDDINGS, Service.TIKA)
+            ),
             Depends(auth_class("update")),
         ],
     )
@@ -281,7 +291,7 @@ def create_app():
         response_model_exclude_unset=True,
         status_code=201,
         dependencies=[
-            Depends(RequiredServices(Service.OPENSEARCH, Service.LLM)),
+            Depends(RequiredServices(Service.OPENSEARCH, Service.EMBEDDINGS)),
             Depends(auth_class("update")),
             Depends(UrlListValidator()),
         ],
@@ -379,7 +389,7 @@ def create_app():
     @app.post(
         "/prompt",
         dependencies=[
-            Depends(RequiredServices(Service.OPENSEARCH, Service.LLM)),
+            Depends(RequiredServices(Service.OPENSEARCH, Service.EMBEDDINGS)),
             Depends(body_checker("read")),
         ],
     )
@@ -394,6 +404,10 @@ def create_app():
     @app.get("/status/llm")
     async def llm_status():
         return ServiceStatus(running=await check_llm())
+
+    @app.get("/status/embeddings")
+    async def embeddings_status():
+        return ServiceStatus(running=await check_embeddings())
 
     @app.get("/status/providers", dependencies=[Depends(access_token)])
     async def providers_status() -> dict[str, ServiceStatus]:

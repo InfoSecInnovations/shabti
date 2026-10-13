@@ -16,10 +16,12 @@ from shabti_types import (
     DocumentIngestInfo,
     DuplicateDocumentError,
     EmbeddingsConfigError,
+    EmbeddingsDriftError,
     EmbeddingsError,
     EmbeddingsModelMismatchError,
     EmptyDocumentError,
     ModelNotFoundError,
+    ProviderError,
     UnsupportedFileError,
     UserInfo,
 )
@@ -47,9 +49,11 @@ RAISE_EXCEPTIONS = os.getenv("ENVIRONMENT") == "development" and False
 # already reports them as themselves, for the same reason
 EMBEDDINGS_ERRORS = (
     EmbeddingsConfigError,
+    EmbeddingsDriftError,
     EmbeddingsError,
     EmbeddingsModelMismatchError,
     ModelNotFoundError,
+    ProviderError,
 )
 
 

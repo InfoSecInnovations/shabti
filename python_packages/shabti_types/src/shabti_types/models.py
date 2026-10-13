@@ -183,6 +183,7 @@ class Service(StrEnum):
 
     OPENSEARCH = "opensearch"
     LLM = "llm"
+    EMBEDDINGS = "embeddings"
     TIKA = "tika"
     KEYCLOAK = "keycloak"
 
@@ -194,6 +195,7 @@ class Service(StrEnum):
 SERVICE_LABELS = {
     Service.OPENSEARCH: "OpenSearch",
     Service.LLM: "LLM",
+    Service.EMBEDDINGS: "Embeddings",
     Service.TIKA: "Tika",
     Service.KEYCLOAK: "Keycloak",
 }

@@ -11,7 +11,11 @@ from shabti_types import ProviderConfigError
 
 from ...src.app.functionality.providers import config as config_module
 from ...src.app.functionality.providers import secret_files
-from ...src.app.functionality.providers.config import Provider, providers_config
+from ...src.app.functionality.providers.config import (
+    EmbeddingsConfig,
+    Provider,
+    providers_config,
+)
 from ...src.app.functionality.providers.secret_files import (
     instance_salt,
     provider_keys,
@@ -81,6 +85,17 @@ def test_everything_a_provider_can_carry_is_read(write_config):
     assert provider.overrides == {"chat": {"context_length": 1000}}
 
 
+def test_no_allow_list_offers_everything(write_config):
+    write_config({"providers": [PROVIDER]})
+    assert providers_config().providers[0].allow is None
+
+
+def test_an_empty_allow_list_is_kept_apart_from_none(write_config):
+    # a provider added only to embed with offers none of its chat models
+    write_config({"providers": [{**PROVIDER, "models": {"allow": []}}]})
+    assert providers_config().providers[0].allow == ()
+
+
 def test_a_rewritten_file_is_read_again(write_config):
     # providers can be managed while the API is running
     write_config({"providers": [PROVIDER]})
@@ -115,6 +130,47 @@ def test_duplicate_ids_are_refused(write_config):
 
 def test_a_file_that_is_not_json_is_refused(write_config):
     write_config("{not json")
+    with pytest.raises(ProviderConfigError):
+        providers_config()
+
+
+def test_no_embeddings_section_embeds_locally(write_config):
+    write_config({"providers": [PROVIDER]})
+    assert providers_config().embeddings is None
+
+
+def test_the_embeddings_model_is_read(write_config):
+    write_config(
+        {
+            "providers": [PROVIDER],
+            "embeddings": {"model": "remote/text-embed/v2", "dimensions": 256},
+        }
+    )
+    assert providers_config().embeddings == EmbeddingsConfig(
+        model="remote/text-embed/v2", dimensions=256
+    )
+
+
+def test_a_local_embeddings_model_can_be_named(write_config):
+    write_config({"embeddings": {"model": "local/all-MiniLM-L6-v2"}})
+    assert providers_config().embeddings == EmbeddingsConfig(
+        model="local/all-MiniLM-L6-v2"
+    )
+
+
+@pytest.mark.parametrize(
+    "embeddings",
+    [
+        "remote/text-embed",
+        {"model": "text-embed"},
+        {"model": "elsewhere/text-embed"},
+        {"model": "remote/text-embed", "dimensions": 0},
+        {"model": "remote/text-embed", "dimensions": "256"},
+        {"model": "remote/text-embed", "dimensions": True},
+    ],
+)
+def test_an_invalid_embeddings_section_is_refused(write_config, embeddings):
+    write_config({"providers": [PROVIDER], "embeddings": embeddings})
     with pytest.raises(ProviderConfigError):
         providers_config()
 

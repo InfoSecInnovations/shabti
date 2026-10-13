@@ -91,6 +91,10 @@ async def test_llm_status(shabti_client):
     assert await shabti_client.llm_status()
 
 
+async def test_embeddings_status(shabti_client):
+    assert await shabti_client.embeddings_status()
+
+
 async def test_opensearch_status(shabti_client):
     assert await shabti_client.opensearch_status()
 

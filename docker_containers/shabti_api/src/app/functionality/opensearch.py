@@ -3,6 +3,8 @@ import os
 from opensearchpy import AsyncOpenSearch
 from shabti_types import EmbeddingsModelMismatchError
 from .embeddings import get_embeddings_model_id, get_vector_dimension
+from .providers.config import LOCAL
+from .providers.registry import qualify
 
 
 MAPPING_INDEX_NAME = "collection_mappings"
@@ -113,7 +115,8 @@ async def check_embeddings_model(collection_id, model_id):
     The embeddings model can only be chosen on a fresh install, so a mismatch means something was
     changed by hand. Vectors from two models aren't comparable, and nothing else would notice: the
     dimension usually still matches, so OpenSearch accepts them and retrieval just quietly gets
-    worse. Indices created before `_meta` was written carry none, which is not a mismatch.
+    worse. Indices created before `_meta` was written carry none, which is not a mismatch, and
+    one created before model ids named their provider holds a bare llama.cpp id.
     """
     client = get_client()
     mappings = await client.indices.get_mapping(index=collection_id)
@@ -123,6 +126,8 @@ async def check_embeddings_model(collection_id, model_id):
         .get("_meta", {})
         .get("embeddings_model")
     )
+    if indexed and "/" not in indexed:
+        indexed = qualify(LOCAL, indexed)
     if indexed and indexed != model_id:
         raise EmbeddingsModelMismatchError(
             indexed_model=indexed,

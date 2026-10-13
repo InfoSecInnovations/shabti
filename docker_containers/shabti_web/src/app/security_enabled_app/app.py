@@ -49,7 +49,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     )
     api_status = reactive.value(False)
     opensearch_status = reactive.value(False)
-    llm_status = reactive.value(False)
+    embeddings_status = reactive.value(False)
     tika_status = reactive.value(False)
     selected_collection = reactive.value("")
     collections: reactive.Value[CollectionsData[AuthzCollectionInfo]] = reactive.value(
@@ -135,7 +135,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         opensearch_status,
         user_info,
         permissions,
-        llm_status,
+        embeddings_status,
         tika_status,
     )
     prompter_server(
@@ -145,7 +145,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         collections,
         api_status,
         opensearch_status,
-        llm_status,
+        embeddings_status,
         lambda str, selected_collection, collections: collection_selector_server(
             str, selected_collection, collections, user_info
         ),
@@ -154,7 +154,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     @reactive.effect
     def update_status():
         update_status_reactives(
-            status, api_status, opensearch_status, llm_status, tika_status
+            status, api_status, opensearch_status, embeddings_status, tika_status
         )
 
     @reactive.extended_task

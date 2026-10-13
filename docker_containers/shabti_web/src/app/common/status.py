@@ -19,18 +19,31 @@ def status_server(
     input: Inputs, output: Outputs, session: Session, client: BaseShabtiClient
 ):
     opensearch_status = reactive.value("loading")
+    # "absent" for an installation whose models are all remote, which has no llama.cpp
     llm_status = reactive.value("loading")
+    embeddings_status = reactive.value("loading")
     tika_status = reactive.value("loading")
     api_status = reactive.value("loading")
 
     @reactive.extended_task
     async def get_llm_status():
         try:
-            return "online" if await client.llm_status() else "offline"
+            # llama.cpp is only listed when it is part of the installation
+            providers = await client.provider_status()
+            if "local" not in providers:
+                return "absent"
+            return "online" if providers["local"] else "offline"
         # every way the connection itself can fail, not just a refused one: a cold stack also drops
         # keep-alive connections mid request, and anything escaping here is an unhandled error in
         # the effect below, which takes the whole session down rather than just this poll.
         # Deliberately no wider - a ShabtiRequestError or a malformed body is a real fault
+        except TransportError:
+            return "loading"
+
+    @reactive.extended_task
+    async def get_embeddings_status():
+        try:
+            return "online" if await client.embeddings_status() else "offline"
         except TransportError:
             return "loading"
 
@@ -57,6 +70,10 @@ def status_server(
         llm_status.set(get_llm_status.result())
 
     @reactive.effect
+    def set_embeddings_status():
+        embeddings_status.set(get_embeddings_status.result())
+
+    @reactive.effect
     def set_opensearch_status():
         opensearch_status.set(get_opensearch_status.result())
 
@@ -77,7 +94,7 @@ def status_server(
         reactive.invalidate_later(POLL_SECONDS if settled else RETRY_SECONDS)
         get_api_status()
 
-    # the LLM, OpenSearch and Tika statuses are obtained through the API, so the API needs to be online before we can verify the others
+    # the LLM, embeddings, OpenSearch and Tika statuses are obtained through the API, so the API needs to be online before we can verify the others
     @reactive.effect
     def on_api_status():
         # this one read is deliberately not isolated: it is what makes this fire the moment the API
@@ -86,17 +103,20 @@ def status_server(
         with reactive.isolate():
             settled = (
                 online
-                and llm_status.get() == "online"
+                and llm_status.get() in ("online", "absent")
+                and embeddings_status.get() == "online"
                 and opensearch_status.get() == "online"
                 and tika_status.get() == "online"
             )
         reactive.invalidate_later(POLL_SECONDS if settled else RETRY_SECONDS)
         if online:
             get_llm_status()
+            get_embeddings_status()
             get_opensearch_status()
             get_tika_status()
         else:
             llm_status.set("loading")
+            embeddings_status.set("loading")
             opensearch_status.set("loading")
             tika_status.set("loading")
 
@@ -115,10 +135,16 @@ def status_server(
                     f"{'🟢' if opensearch_status.get() == 'online' else '🔴'} OpenSearch"
                 )
             )
-        if llm_status.get() != "loading":
+        if llm_status.get() not in ("loading", "absent"):
             items.append(
                 ui.markdown(
                     f"{'🟢' if llm_status.get() == 'online' else '🔴'} Local models"
+                )
+            )
+        if embeddings_status.get() != "loading":
+            items.append(
+                ui.markdown(
+                    f"{'🟢' if embeddings_status.get() == 'online' else '🔴'} Embeddings"
                 )
             )
         if tika_status.get() != "loading":
@@ -133,7 +159,9 @@ def status_server(
         return {
             "api": api_status.get() == "online",
             "opensearch": opensearch_status.get() == "online",
-            "llm": llm_status.get() == "online",
+            # what ingesting and prompting need, local or not: a local chat model's own
+            # availability is checked when it is chosen
+            "embeddings": embeddings_status.get() == "online",
             "tika": tika_status.get() == "online",
         }
 

@@ -95,6 +95,8 @@ export const resetDownloadedModels = () => {
  */
 export const requireModels = async (modelNames: string[]) => {
 	if (await isOnline()) return true;
+	// nothing to look for, and finding out what's downloaded means starting llama.cpp
+	if (!modelNames.length) return false;
 	const [models, downloaded] = await Promise.all([
 		getModelsConfig(),
 		listDownloadedModels(),

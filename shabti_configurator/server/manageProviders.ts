@@ -1,3 +1,4 @@
+import { HTTPException } from "hono/http-exception";
 import logMessage from "./logMessage";
 import { providerFromForm } from "./providers";
 import writeProviders, { readProviders } from "./writeProviders";
@@ -7,6 +8,12 @@ import writeProviders, { readProviders } from "./writeProviders";
 export default async function* (options: FormData) {
 	const { config, keys } = await readProviders();
 	const removed = options.getAll("remove_provider").map((v) => v.toString());
+	// the embeddings model can't change after install, and its provider is what serves it
+	const embeddingsProvider = config.embeddings?.model.split("/")[0];
+	if (embeddingsProvider && removed.includes(embeddingsProvider))
+		throw new HTTPException(400, {
+			message: "The embeddings provider can't be removed.",
+		});
 	const kept = config.providers.filter(
 		(provider) => !removed.includes(provider.id),
 	);

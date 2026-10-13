@@ -214,7 +214,7 @@ app.post("/manage-models", async (c) =>
 	runOperation(
 		c,
 		"Updating language models",
-		manageModels(await c.req.formData()),
+		manageModels(await c.req.formData(), state),
 		"Language models updated successfully.",
 	),
 );

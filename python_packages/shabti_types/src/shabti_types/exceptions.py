@@ -107,6 +107,22 @@ class EmbeddingsModelMismatchError(ShabtiError):
         self.current_model = current_model
 
 
+class EmbeddingsDriftError(ShabtiError):
+    """The embeddings model now makes different vectors from the ones the collections hold.
+
+    A model ID is no promise that the vectors behind it stay the same: a provider can retire or
+    re-point it, and a local tag can be re-pulled. New vectors would not be comparable with the
+    stored ones, so nothing more is embedded until the documents are re-ingested.
+    """
+
+    def __init__(self, message=""):
+        super().__init__(
+            message
+            or "The embeddings model has changed; documents must be re-ingested.",
+            409,
+        )
+
+
 class ServiceUnavailableError(ShabtiError):
     """A service the request needs is not running or not accepting requests yet."""
 

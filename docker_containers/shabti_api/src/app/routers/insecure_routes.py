@@ -20,7 +20,7 @@ opensearch = Depends(RequiredServices(Service.OPENSEARCH))
     "/collections",
     response_model_exclude_unset=True,
     status_code=201,
-    dependencies=[Depends(RequiredServices(Service.OPENSEARCH, Service.LLM))],
+    dependencies=[Depends(RequiredServices(Service.OPENSEARCH, Service.EMBEDDINGS))],
 )
 async def create_collection_route(
     collection_info: BaseCollectionCreateInfo,

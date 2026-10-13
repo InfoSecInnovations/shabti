@@ -5,6 +5,7 @@ import getEnvs from "./getEnvs";
 import launchShabti from "./launchShabti";
 import logMessage from "./logMessage";
 import requireGpu from "./requireGpu";
+import { usesLlamaCpp } from "./llamaCpp";
 import stopWatchProcess from "./stopWatchProcess";
 
 export default async function* (
@@ -27,7 +28,8 @@ export default async function* (
 		return;
 	}
 	envs.SHABTI_COMPUTE = options.has("use_gpu") ? "cuda" : "cpu";
-	await requireGpu(envs);
+	// the GPU is only llama.cpp's
+	if (usesLlamaCpp(envs)) await requireGpu(envs);
 	yield logMessage(
 		`Launching Shabti ${envs.SHABTI_COMPUTE == "cuda" ? "with" : "without"} GPU acceleration.`,
 	);

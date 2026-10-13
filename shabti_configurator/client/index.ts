@@ -229,6 +229,14 @@ const wireProviderTest = (prefix: string) => {
 		// so the default chat model selector drops the models of a provider that changed
 		modelsEl.dispatchEvent(new Event("change", { bubbles: true }));
 	};
+	// for the install form's embeddings model, which can be any of them
+	const announce = (models: string[], embeddingsModels: string[]) =>
+		modelsEl.dispatchEvent(
+			new CustomEvent("provider-models", {
+				detail: { models, embeddingsModels },
+				bubbles: true,
+			}),
+		);
 	button.onclick = async () => {
 		button.disabled = true;
 		showStatus("", "Testing the connection...");
@@ -245,6 +253,7 @@ const wireProviderTest = (prefix: string) => {
 			const result = await response.json();
 			if (result.error) {
 				showModels([]);
+				announce([], []);
 				showStatus(".error", [
 					h("p", result.error),
 					result.hint ? h("p", result.hint) : undefined,
@@ -254,11 +263,14 @@ const wireProviderTest = (prefix: string) => {
 			// the URL the API will use, which may have lost an endpoint path pasted along with it
 			field("provider_base_url").value = result.baseUrl;
 			showModels(result.models);
+			announce(result.models, result.embeddingsModels);
 			showStatus(
 				"",
 				result.models.length
 					? `Found ${result.models.length} models, choose the ones to offer.`
-					: "The provider listed no models.",
+					: result.embeddingsModels.length
+						? `Found ${result.embeddingsModels.length} embeddings models.`
+						: "The provider listed no models.",
 			);
 		} catch {
 			showStatus(".error", "Couldn't test the connection.");
@@ -266,6 +278,43 @@ const wireProviderTest = (prefix: string) => {
 			button.disabled = false;
 		}
 	};
+};
+
+// the install form's provider can embed as well. its embeddings models come first, but any of its
+// models can be chosen, as not every provider says which of them embed. searchable, as a provider
+// can list hundreds
+const wireRemoteEmbeddings = () => {
+	const select = document.getElementById(
+		"remote_embeddings_model",
+	) as HTMLSelectElement | null;
+	const modelsEl = document.getElementById("provider_models");
+	if (!select || !modelsEl) return; // the install form isn't on the page
+	const tomSelect = new TomSelect(select, {
+		maxItems: 1,
+		lockOptgroupOrder: true,
+		placeholder: "Search the provider's models",
+	});
+	modelsEl.addEventListener("provider-models", (e) => {
+		const { models, embeddingsModels } = (
+			e as CustomEvent<{ models: string[]; embeddingsModels: string[] }>
+		).detail;
+		const previous = tomSelect.getValue() as string;
+		tomSelect.clear(true);
+		tomSelect.clearOptions();
+		tomSelect.clearOptionGroups();
+		tomSelect.addOptionGroup("embeddings", { label: "Embeddings models" });
+		tomSelect.addOptionGroup("other", { label: "Other models" });
+		for (const id of embeddingsModels)
+			tomSelect.addOption({ value: id, text: id, optgroup: "embeddings" });
+		for (const id of models)
+			tomSelect.addOption({ value: id, text: id, optgroup: "other" });
+		const chosen = [...embeddingsModels, ...models].includes(previous)
+			? previous
+			: embeddingsModels.length == 1
+				? embeddingsModels[0]
+				: undefined;
+		if (chosen) tomSelect.setValue(chosen, true);
+	});
 };
 
 // uninstalling and installing over an existing configuration both destroy the user's data and
@@ -367,6 +416,16 @@ if (password2El) password2El.oninput = checkPasswords;
 const setFormVisibility = () => {
 	if (!formEl) return; // the install form isn't on the page
 	const formData = new FormData(formEl);
+	const remoteEmbeddings = formData.get("embeddings_source") == "provider";
+	document
+		.getElementById("local_embeddings")
+		?.classList.toggle("hidden", remoteEmbeddings);
+	document
+		.getElementById("remote_embeddings")
+		?.classList.toggle("hidden", !remoteEmbeddings);
+	document
+		.getElementById("embeddings_tokenizer_repo_container")
+		?.classList.toggle("hidden", formData.get("embeddings_tokenizer") != "hf");
 	const keycloakConfig = document.getElementById("keycloak_config");
 	if (formData.get("security_level") != "none") {
 		keycloakConfig?.classList.remove("hidden");
@@ -391,6 +450,7 @@ wireDefaultModelSelector(
 );
 wireProviderTest("");
 wireProviderTest("manage_");
+wireRemoteEmbeddings();
 wireLoggingVisibility("activity_logging");
 wireLoggingVisibility("manage_activity_logging");
 wireTabs();

@@ -10,6 +10,7 @@ from .embeddings import (
     get_embeddings_model_id,
 )
 from .embeddings_config import chunk_size, document_prefix
+from .embeddings_fingerprint import is_drifted
 from .loaders.base_loader import ShabtiDocument, ShabtiPageStream
 from .opensearch import (
     get_client,
@@ -21,6 +22,7 @@ from shabti_types import (
     DocumentIngestInfo,
     DuplicateDocumentError,
     EmbeddingsConfigError,
+    EmbeddingsDriftError,
     EmptyDocumentError,
 )
 from semantic_text_splitter import TextSplitter
@@ -114,6 +116,9 @@ async def insert(
     task, which overlaps the two servers involved: a page is embedded while the previous one's
     vectors are still being written to OpenSearch.
     """
+    # an ingest queued before the change was noticed would otherwise still add incomparable vectors
+    if is_drifted():
+        raise EmbeddingsDriftError()
     client = get_client()
     # per-document rather than per-page: the model listing is a round trip and the model doesn't
     # change while one document is being ingested

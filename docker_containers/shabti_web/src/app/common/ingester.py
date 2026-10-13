@@ -3,6 +3,7 @@ from .text_input_list import text_input_list
 from dataclasses import dataclass, field
 from shabti_types import IngestInfo, IngestStatus
 from shabti_api_client import BaseShabtiClient, ShabtiRequestError
+from .request_errors import request_error_text
 from .collections_data import CollectionsData
 from .ingest_job import (
     collection_label,
@@ -49,13 +50,10 @@ def just_finished(job: IngestInfo) -> bool:
 
 
 def submit_error_text(error: Exception) -> str:
-    if not isinstance(error, ShabtiRequestError):
-        return str(error)
-    if error.status_code == 403:
+    if isinstance(error, ShabtiRequestError) and error.status_code == 403:
         # the wording the collection view already uses for the same denial
         return "You don't have permission to ingest documents into this collection"
-    body = error.message["message"]
-    return body.get("message") if isinstance(body, dict) else str(body)
+    return request_error_text(error)
 
 
 @module.ui
@@ -75,7 +73,7 @@ def ingester_server(
     client: BaseShabtiClient,
     selected_collection: reactive.Value,
     collections: reactive.Value[CollectionsData],
-    llm_status: reactive.Value,
+    embeddings_status: reactive.Value,
     tika_status: reactive.Value,
 ):
     file_input_trigger = reactive.value(0)
@@ -110,8 +108,8 @@ def ingester_server(
 
     @render.ui
     def ingester_content():
-        if not llm_status.get():
-            return ui.markdown("Waiting for LLM host to come online...")
+        if not embeddings_status.get():
+            return ui.markdown("Waiting for the embeddings model to come online...")
         if not tika_status.get():
             return ui.markdown("Waiting for Tika to come online...")
         if not embedding_model_loaded.get():
@@ -410,9 +408,16 @@ def ingester_server(
 
     @reactive.extended_task
     async def load_embedding_model():
+        # only a local embeddings model has to be loaded, and an installation whose models are all
+        # remote has no llama.cpp to ask
+        if not any(x.id == "local" for x in await client.get_providers()):
+            return
         models = await client.get_models()
-        embeddings = next(m for m in models["data"] if "embeddings" in m["tags"])
-        await load_models(client, embeddings["id"])
+        embeddings = next(
+            (m for m in models["data"] if "embeddings" in m["tags"]), None
+        )
+        if embeddings:
+            await load_models(client, embeddings["id"])
 
     @reactive.effect
     def load_model_effect():
@@ -421,7 +426,7 @@ def ingester_server(
 
     @reactive.effect
     def init():
-        if llm_status.get() and not embedding_model_loaded.get():
+        if embeddings_status.get() and not embedding_model_loaded.get():
             load_embedding_model()
 
     return ingesting_done

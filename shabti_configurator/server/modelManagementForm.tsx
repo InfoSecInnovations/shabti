@@ -7,6 +7,7 @@ export const ModelManagementForm = async () => {
 	const { connectivity, selection, chatModels, selectedChatModels } =
 		await resolveModelSelection();
 	const { config } = await readProviders();
+	const embeddingsModel = config.embeddings?.model ?? selection.embeddingsModel;
 	return (
 		<form action="/manage-models" method="post">
 			<fieldset>
@@ -27,8 +28,8 @@ export const ModelManagementForm = async () => {
 						id="current_embeddings_model"
 						disabled
 					>
-						<option value={selection.embeddingsModel} selected>
-							{selection.embeddingsModel}
+						<option value={embeddingsModel} selected>
+							{embeddingsModel}
 						</option>
 					</select>
 				</p>
