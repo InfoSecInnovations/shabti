@@ -4,7 +4,11 @@ import writeProviders, {
 	getInstanceSaltPath,
 	getProviderKeysPath,
 	getProvidersPath,
+	getSecretsKeyPath,
+	rotateSecretsKey,
+	type SecretsKey,
 	writeInstanceSalt,
+	writeSecretsKey,
 } from "../server/writeProviders";
 import { useTempCwd } from "./mocks";
 
@@ -84,5 +88,47 @@ describe("writeInstanceSalt", () => {
 	test.if(posix)("is readable by its owner alone", async () => {
 		await writeInstanceSalt();
 		expect((await stat(getInstanceSaltPath())).mode & 0o777).toBe(0o600);
+	});
+});
+
+const readSecretsKey = async () =>
+	JSON.parse(await readFile(getSecretsKeyPath(), "utf8")) as SecretsKey;
+
+describe("writeSecretsKey", () => {
+	test("is an AES-256 key at version 1", async () => {
+		await writeSecretsKey();
+		const secretsKey = await readSecretsKey();
+		expect(secretsKey.current).toBe(1);
+		expect(Object.keys(secretsKey.keys)).toEqual(["1"]);
+		expect(Buffer.from(secretsKey.keys["1"]!, "base64")).toHaveLength(32);
+	});
+
+	test.if(posix)("is readable by its owner alone", async () => {
+		await writeSecretsKey();
+		expect((await stat(getSecretsKeyPath())).mode & 0o777).toBe(0o600);
+	});
+});
+
+describe("rotateSecretsKey", () => {
+	test("adds a version and keeps the old ones to decrypt with", async () => {
+		await writeSecretsKey();
+		const before = await readSecretsKey();
+		expect(await rotateSecretsKey()).toBe(2);
+		expect(await rotateSecretsKey()).toBe(3);
+		const after = await readSecretsKey();
+		expect(after.current).toBe(3);
+		expect(after.keys["1"]).toBe(before.keys["1"]!);
+		expect(new Set(Object.values(after.keys)).size).toBe(3);
+	});
+
+	test("starts at version 1 without a key", async () => {
+		expect(await rotateSecretsKey()).toBe(1);
+		expect((await readSecretsKey()).current).toBe(1);
+	});
+
+	test.if(posix)("stays readable by its owner alone", async () => {
+		await writeSecretsKey();
+		await rotateSecretsKey();
+		expect((await stat(getSecretsKeyPath())).mode & 0o777).toBe(0o600);
 	});
 });

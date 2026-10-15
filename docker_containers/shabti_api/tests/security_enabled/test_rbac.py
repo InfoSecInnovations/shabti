@@ -831,3 +831,49 @@ async def test_an_ingest_is_only_visible_to_its_owner(
         for item in shabti_client.get("/ingests", headers=owner_headers).json()
     )
     assert drain_ingest(shabti_client, ingest_id, owner_headers)
+
+
+# their own keys for a provider, see test_provider_keys.py. `stub-byok` takes only users' keys.
+# no collection is needed: a role is access before there's a collection for it to apply to
+@pytest.mark.parametrize(
+    "user", ["testadmin", "testshared", "testprivate", "testsharedread"]
+)
+async def test_can_add_api_key(user, shabti_client):
+    token = get_keycloak_client().token(user, "test")
+    headers = {"Authorization": f"Bearer {token['access_token']}"}
+    try:
+        response = shabti_client.put(
+            "/providers/stub-byok/credential",
+            json={"key": "sk-test-1234"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        response = shabti_client.get("/providers/credentials", headers=headers)
+        assert response.json() == {"stub-byok": "1234"}
+    finally:
+        response = shabti_client.delete(
+            "/providers/stub-byok/credential", headers=headers
+        )
+        assert response.status_code == 200
+    assert response.json() == {}
+
+
+@pytest.mark.parametrize(
+    "method,url",
+    [
+        ("get", "/providers/credentials"),
+        ("put", "/providers/stub-byok/credential"),
+        ("delete", "/providers/stub-byok/credential"),
+    ],
+)
+async def test_cannot_add_api_key(method, url, shabti_client):
+    # a user who can't do anything in Shabti has no use for a key
+    token = get_keycloak_client().token("testnothing", "test")
+    response = shabti_client.request(
+        method,
+        url,
+        json={"key": "sk-test-1234"},
+        headers={"Authorization": f"Bearer {token['access_token']}"},
+    )
+    assert response.status_code == 403
+    assert response.json()["error_type"] == "UserKeysUnavailableError"

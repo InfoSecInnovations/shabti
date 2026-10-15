@@ -76,11 +76,16 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "False")(
 			);
 			expect(remote?.modelId).toBe(loadedChatModel);
 			expect(models.every((model) => model.category == "chat")).toBeTrue();
+			// it only takes users' own keys, which nobody has with security disabled
+			expect(
+				models.some((model) => model.providerId == "stub-byok"),
+			).toBeFalse();
 		});
 		test("provider status", async () => {
 			expect(await getClient().providerStatus()).toEqual({
 				local: true,
 				stub: true,
+				"stub-byok": true,
 			});
 		});
 		test("create collection", async () => {

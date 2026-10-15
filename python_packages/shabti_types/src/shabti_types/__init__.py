@@ -12,6 +12,7 @@ from .models import (
     ModelInfo as ModelInfo,
     ProviderInfo as ProviderInfo,
     ProviderModelInfo as ProviderModelInfo,
+    ProviderKeyInfo as ProviderKeyInfo,
     PromptInfo as PromptInfo,
     ServiceStatus as ServiceStatus,
     Service as Service,
@@ -50,5 +51,8 @@ from .exceptions import (
     ProviderRateLimitError as ProviderRateLimitError,
     ProviderNotFoundError as ProviderNotFoundError,
     ProviderUnavailableError as ProviderUnavailableError,
+    ProviderKeyMissingError as ProviderKeyMissingError,
+    ProviderKeyInvalidError as ProviderKeyInvalidError,
+    UserKeysUnavailableError as UserKeysUnavailableError,
     ProviderConfigError as ProviderConfigError,
 )

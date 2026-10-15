@@ -84,8 +84,16 @@ def remote(monkeypatch, tmp_path):
     # no providers file, so the cache is only cleared by the tests that write one
     monkeypatch.setattr(config_module, "CONFIG_PATH", str(tmp_path / "providers.json"))
     monkeypatch.setattr(models_dev_module, "snapshot", lambda: SNAPSHOT)
-    monkeypatch.setattr(discovery_module, "effective_key", lambda p, c: "sk-1")
+    monkeypatch.setattr(discovery_module, "shared_key", lambda p: "sk-1")
+    own_keys = {}
+
+    async def user_key(provider, credentials):
+        return own_keys.get(credentials)
+
+    monkeypatch.setattr(discovery_module, "user_key", user_key)
     api = Remote()
+    # each user's own key, by their token
+    api.own_keys = own_keys
     monkeypatch.setattr(discovery_module.httpx, "AsyncClient", api.client)
     return api
 
@@ -133,7 +141,7 @@ async def test_only_the_key_and_the_configured_headers_are_sent(remote):
 
 
 async def test_no_authorization_is_sent_without_a_key(monkeypatch, remote):
-    monkeypatch.setattr(discovery_module, "effective_key", lambda p, c: None)
+    monkeypatch.setattr(discovery_module, "shared_key", lambda p: None)
     await list_models(REMOTE, None)
     assert remote.gets[0][1] == {"X-Org": "an-org"}
 
@@ -300,3 +308,42 @@ def test_without_a_usable_copy_models_dev_knows_nothing(
         path.write_text(contents)
     monkeypatch.setattr(models_dev_module, "SNAPSHOT_PATH", str(path))
     assert lookup("https://api.test/v1", "chat-a") is None
+
+
+async def test_a_provider_taking_only_users_keys_is_left_out_for_one_without(remote):
+    provider = replace(REMOTE, credential_mode="user")
+    assert await list_models(provider, "a-token") == []
+    assert remote.gets == []
+
+
+async def test_a_users_own_key_lists_a_provider_without_a_shared_one(
+    monkeypatch, remote
+):
+    monkeypatch.setattr(discovery_module, "shared_key", lambda p: None)
+    remote.own_keys["a-token"] = "sk-own"
+    provider = replace(REMOTE, credential_mode="user")
+    assert len(await list_models(provider, "a-token")) == 2
+    assert remote.gets[0][1]["Authorization"] == "Bearer sk-own"
+
+
+async def test_the_shared_key_lists_a_provider_that_has_one(remote):
+    # so most users share one listing
+    remote.own_keys["a-token"] = "sk-own"
+    provider = replace(REMOTE, credential_mode="user")
+    await list_models(provider, "a-token")
+    assert remote.gets[0][1]["Authorization"] == "Bearer sk-1"
+
+
+async def test_a_listing_made_with_a_users_key_is_kept_to_that_key(monkeypatch, remote):
+    monkeypatch.setattr(discovery_module, "shared_key", lambda p: None)
+    remote.own_keys.update({"a-token": "sk-a", "b-token": "sk-b"})
+    provider = replace(REMOTE, credential_mode="user")
+    await list_models(provider, "a-token")
+    await list_models(provider, "a-token")
+    # another user's account may be offered different models
+    remote.listing = {"data": [{"id": "chat-c"}]}
+    assert [x.model_id for x in await list_models(provider, "b-token")] == ["chat-c"]
+    assert [x[1]["Authorization"] for x in remote.gets] == [
+        "Bearer sk-a",
+        "Bearer sk-b",
+    ]

@@ -6,6 +6,7 @@ volunteers, then the bundled models.dev snapshot, and finally conservative defau
 """
 
 import asyncio
+import hashlib
 import logging
 import time
 import httpx
@@ -13,12 +14,14 @@ from shabti_types import ProviderModelInfo, ProviderUnavailableError, ShabtiErro
 from ..models import get_models, model_categories, model_status
 from .config import LOCAL, Provider, config_mtime
 from .errors import provider_error
-from .keys import effective_key
+from .keys import shared_key, user_key
 from .models_dev import lookup
 from .registry import providers, qualify
 
 # a remote listing barely changes, and listing every provider on each prompt would cost each one a
-# round trip. failures are not kept, so a provider that comes back is listed on the next request
+# round trip. failures are not kept, so a provider that comes back is listed on the next request.
+# a listing made with a user's own key is kept apart from the others, as their account may be
+# offered different models
 CACHE_SECONDS = 600
 REQUEST_TIMEOUT = 10
 # small enough that a chunk sized for it fits any chat model still in use
@@ -105,14 +108,26 @@ async def remote_models(
     # a provider that only embeds offers nothing to chat with, so there's nothing to ask it
     if provider.allow == ():
         return []
-    cached = _cache.get(provider.id)
+    own = await user_key(provider, credentials)
+    # nothing the user could prompt it with until they add their own key
+    if provider.credential_mode == "user" and not own:
+        return []
+    # the admin's key where there is one, so most users share one listing
+    shared = shared_key(provider)
+    key = shared or own
+    scope = (
+        provider.id
+        if shared or not own
+        else f"{provider.id}#{hashlib.sha256(own.encode()).hexdigest()}"
+    )
+    cached = _cache.get(scope)
     if cached and time.monotonic() - cached[0] < CACHE_SECONDS:
         return cached[1]
-    listed = await fetch_models(provider, effective_key(provider, credentials))
+    listed = await fetch_models(provider, key)
     if provider.allow is not None:
         listed = [x for x in listed if x["id"] in provider.allow]
     models = [describe(provider, x) for x in listed]
-    _cache[provider.id] = (time.monotonic(), models)
+    _cache[scope] = (time.monotonic(), models)
     return models
 
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
 import manageProviders from "../server/manageProviders";
 import writeProviders, { readProviders } from "../server/writeProviders";
 import { drain, useTempCwd } from "./mocks";
@@ -160,5 +161,84 @@ describe("manageProviders", () => {
 			model: "remote/text-embed",
 			dimensions: 256,
 		});
+	});
+});
+
+describe("whose key a provider uses", () => {
+	// users' own keys need security fully enabled, which is in the environment file
+	const securityLevel = async (level: "none" | "demo" | "enabled") => {
+		await mkdir("docker_compose", { recursive: true });
+		await writeFile(
+			"docker_compose/.env",
+			[
+				`SHABTI_SECURITY_ENABLED=${level == "none" ? "False" : "True"}`,
+				...(level == "demo" ? ["IS_SECURITY_DEMO=True"] : []),
+			].join("\n"),
+		);
+	};
+
+	test("changes to users' own keys with security enabled", async () => {
+		await securityLevel("enabled");
+		const { updates } = await drain(
+			manageProviders(form({ mode_remote: "user", mode_other: "shared" })),
+		);
+		const { config, keys } = await readProviders();
+		expect(config.providers[0]!.credential_mode).toBe("user");
+		expect(config.providers[1]!.credential_mode).toBeUndefined();
+		// the shared key stays, for when it's changed back
+		expect(keys.remote).toBe("sk-remote");
+		expect(updates.join("\n")).toContain("changing whose API key Remote uses");
+	});
+
+	test("changes back to the shared key", async () => {
+		await securityLevel("enabled");
+		await drain(manageProviders(form({ mode_remote: "shared_or_user" })));
+		await drain(manageProviders(form({ mode_remote: "shared" })));
+		expect(
+			(await readProviders()).config.providers[0]!.credential_mode,
+		).toBeUndefined();
+	});
+
+	test("adds a provider taking users' own keys", async () => {
+		await securityLevel("enabled");
+		await drain(
+			manageProviders(
+				form({
+					provider_name: "New",
+					provider_base_url: "https://new.test/v1",
+					provider_model: "chat",
+					provider_credential_mode: "user",
+				}),
+			),
+		);
+		expect((await readProviders()).config.providers[2]!.credential_mode).toBe(
+			"user",
+		);
+	});
+
+	test.each(["none", "demo"] as const)(
+		"refuses users' own keys with security %p",
+		async (level) => {
+			await securityLevel(level);
+			const before = await readProviders();
+			await expect(
+				drain(manageProviders(form({ mode_remote: "user" }))),
+			).rejects.toThrow(
+				"Users' own keys for Remote need security to be enabled.",
+			);
+			expect(await readProviders()).toEqual(before);
+		},
+	);
+
+	test("refuses users' own keys for the embeddings provider", async () => {
+		await securityLevel("enabled");
+		const { config, keys } = await readProviders();
+		await writeProviders(
+			{ ...config, embeddings: { model: "remote/text-embed" } },
+			keys,
+		);
+		await expect(
+			drain(manageProviders(form({ mode_remote: "user" }))),
+		).rejects.toThrow("Remote embeds the documents, so it needs a shared key.");
 	});
 });

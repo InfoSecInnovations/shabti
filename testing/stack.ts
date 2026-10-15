@@ -8,6 +8,7 @@ import downloadModel from "../shabti_configurator/server/downloadModel";
 import writeModelsIni from "../shabti_configurator/server/writeModelsIni";
 import writeProviders, {
 	writeInstanceSalt,
+	writeSecretsKey,
 } from "../shabti_configurator/server/writeProviders";
 import {
 	type TestType,
@@ -150,6 +151,8 @@ export const writeTestModelsIni = () =>
  * The API's remote embeddings test embeds through it as well, with settings of its own.
  */
 export const STUB_PROVIDER = "stub";
+/** the same again, taking only users' own keys, which security_enabled tests add and remove */
+export const USER_KEYS_PROVIDER = "stub-byok";
 
 export const writeTestProviders = async () => {
 	const baseDir = path.join(REPO, "shabti_configurator");
@@ -162,12 +165,20 @@ export const writeTestProviders = async () => {
 					base_url: "http://llama_cpp:11434/v1",
 					models: { allow: TEST_MODELS.chatModels },
 				},
+				{
+					id: USER_KEYS_PROVIDER,
+					name: "Stub BYOK",
+					base_url: "http://llama_cpp:11434/v1",
+					credential_mode: "user",
+					models: { allow: TEST_MODELS.chatModels },
+				},
 			],
 		},
 		{ [STUB_PROVIDER]: "stub-key" },
 		baseDir,
 	);
 	await writeInstanceSalt(baseDir);
+	await writeSecretsKey(baseDir);
 };
 
 /**

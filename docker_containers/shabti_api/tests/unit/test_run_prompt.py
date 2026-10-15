@@ -330,7 +330,7 @@ async def test_a_remote_model_is_asked_with_the_key_and_the_hashed_user(
         model_id="vendor/chat",
     )
 
-    def effective_key(provider, credentials):
+    async def effective_key(provider, credentials):
         return f"key for {provider.id}"
 
     async def provider_user(provider, credentials):

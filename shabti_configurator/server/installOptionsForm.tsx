@@ -164,7 +164,10 @@ export const InstallOptionsForm = async (props: {
 					</small>
 				</p>
 			</fieldset>
-			<ProviderFieldset legend="Model Provider"></ProviderFieldset>
+			<ProviderFieldset
+				legend="Model Provider"
+				credentialModes
+			></ProviderFieldset>
 			<LoggingFieldset></LoggingFieldset>
 			<HostsAndPortsFieldset></HostsAndPortsFieldset>
 			<fieldset>

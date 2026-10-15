@@ -26,7 +26,7 @@ from .providers import models_dev
 from .providers.config import LOCAL, Provider, providers_config
 from .providers.discovery import request_headers
 from .providers.errors import provider_error, upstream_detail
-from .providers.keys import effective_key
+from .providers.keys import shared_key
 from .providers.registry import get_provider, local_url, qualify, split_model_id
 
 # the splitter sizes every candidate chunk through /tokenize, which is hundreds of calls for one
@@ -333,7 +333,7 @@ def retry_delay(response: requests.Response, attempt: int) -> float:
 
 
 def request_embeddings(provider: Provider, body: dict, model_id: str) -> dict:
-    key = effective_key(provider, None)
+    key = shared_key(provider)
     headers = request_headers(provider, key)
     for attempt in range(MAX_TRIES):
         try:

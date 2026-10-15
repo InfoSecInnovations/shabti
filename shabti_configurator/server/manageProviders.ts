@@ -1,7 +1,12 @@
 import { HTTPException } from "hono/http-exception";
+import getEnvs from "./getEnvs";
 import logMessage from "./logMessage";
-import { providerFromForm } from "./providers";
-import writeProviders, { readProviders } from "./writeProviders";
+import { credentialMode, providerFromForm } from "./providers";
+import { userKeysEnabled } from "./userKeys";
+import writeProviders, {
+	type ProviderConfig,
+	readProviders,
+} from "./writeProviders";
 
 // adds, removes and rekeys the providers of an existing installation. The API re-reads both files
 // when they change, so nothing has to be restarted
@@ -14,13 +19,28 @@ export default async function* (options: FormData) {
 		throw new HTTPException(400, {
 			message: "The embeddings provider can't be removed.",
 		});
-	const kept = config.providers.filter(
-		(provider) => !removed.includes(provider.id),
-	);
-	// before anything is written, so a provider that can't be added leaves the others as they were
+	const userKeys = userKeysEnabled(await getEnvs());
+	// before anything is written, so a mode or a provider that can't be used leaves them as they were
+	const kept = config.providers
+		.filter((provider) => !removed.includes(provider.id))
+		.map((provider): ProviderConfig => {
+			const field = options.get(`mode_${provider.id}`)?.toString();
+			// only offered with security fully enabled, otherwise the mode stays as it was
+			if (!field) return provider;
+			const { credential_mode, ...rest } = provider;
+			const mode = credentialMode(
+				field,
+				provider.name,
+				userKeys,
+				provider.id == embeddingsProvider,
+			);
+			return mode == "shared" ? rest : { ...rest, credential_mode: mode };
+		});
 	const added = providerFromForm(
 		options,
 		kept.map((provider) => provider.id),
+		false,
+		userKeys,
 	);
 	const newKeys = Object.fromEntries(
 		Object.entries(keys).filter(([id]) => !removed.includes(id)),
@@ -28,6 +48,12 @@ export default async function* (options: FormData) {
 	for (const provider of config.providers.filter((p) => removed.includes(p.id)))
 		yield logMessage(`removing ${provider.name}...`);
 	for (const provider of kept) {
+		const before = config.providers.find((p) => p.id == provider.id);
+		if (
+			(before?.credential_mode || "shared") !=
+			(provider.credential_mode || "shared")
+		)
+			yield logMessage(`changing whose API key ${provider.name} uses...`);
 		// the field is left empty to keep the key there is
 		const key = options.get(`key_${provider.id}`)?.toString().trim();
 		if (!key) continue;

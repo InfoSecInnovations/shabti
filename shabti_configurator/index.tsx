@@ -13,6 +13,7 @@ import dockerIsRunning from "./server/dockerIsRunning";
 import { InstallOptionsForm } from "./server/installOptionsForm";
 import manageModels from "./server/manageModels";
 import manageProviders from "./server/manageProviders";
+import { rotateUserKeys } from "./server/userKeys";
 import { manageHostsAndPorts, manageLogging } from "./server/manageSettings";
 import { ModelManagementForm } from "./server/modelManagementForm";
 import { ProviderManagementForm } from "./server/providerManagementForm";
@@ -224,6 +225,14 @@ app.post("/manage-providers", async (c) =>
 		"Updating model providers",
 		manageProviders(await c.req.formData()),
 		"Model providers updated successfully.",
+	),
+);
+app.post("/rotate-secrets-key", async (c) =>
+	runOperation(
+		c,
+		"Rotating the encryption key",
+		rotateUserKeys(state),
+		"Encryption key rotated successfully.",
 	),
 );
 app.route("/", providerRoutes);

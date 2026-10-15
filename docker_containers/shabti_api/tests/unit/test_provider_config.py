@@ -4,6 +4,7 @@ Each test writes its own files into a temporary directory, so the paths the modu
 pointed there rather than at the mounts a container has.
 """
 
+import base64
 import json
 import os
 import pytest
@@ -19,6 +20,7 @@ from ...src.app.functionality.providers.config import (
 from ...src.app.functionality.providers.secret_files import (
     instance_salt,
     provider_keys,
+    secrets_key,
 )
 
 PROVIDER = {"id": "remote", "name": "Remote", "base_url": "https://api.test/v1/"}
@@ -60,6 +62,25 @@ def test_a_provider_is_read_with_its_defaults(write_config):
         Provider(id="remote", name="Remote", base_url="https://api.test/v1"),
     )
     assert config.default_chat_model == "remote/chat"
+
+
+@pytest.mark.parametrize("mode", ["shared", "user", "shared_or_user"])
+def test_each_credential_mode_is_read(write_config, mode):
+    write_config({"providers": [{**PROVIDER, "credential_mode": mode}]})
+    assert providers_config().providers[0].credential_mode == mode
+
+
+@pytest.mark.parametrize("mode", ["user", "shared_or_user"])
+def test_the_embeddings_provider_must_use_the_shared_key(write_config, mode):
+    # documents are embedded for everyone, so there is no user whose key it could be
+    write_config(
+        {
+            "providers": [{**PROVIDER, "credential_mode": mode}],
+            "embeddings": {"model": "remote/text-embed"},
+        }
+    )
+    with pytest.raises(ProviderConfigError):
+        providers_config()
 
 
 def test_everything_a_provider_can_carry_is_read(write_config):
@@ -112,6 +133,7 @@ def test_a_rewritten_file_is_read_again(write_config):
         {**PROVIDER, "base_url": "ftp://api.test"},
         {**PROVIDER, "base_url": "api.test/v1"},
         {**PROVIDER, "credential_mode": "per-user"},
+        {**PROVIDER, "credential_mode": "none"},
         "remote",
     ],
 )
@@ -202,3 +224,41 @@ def test_no_salt_is_none(secrets_dir, contents):
     if contents is not None:
         (secrets_dir / "shabti_instance_salt").write_text(contents)
     assert instance_salt() is None
+
+
+KEK = base64.b64encode(b"k" * 32).decode()
+
+
+def test_the_secrets_key_is_read_by_version(secrets_dir):
+    (secrets_dir / "shabti_secrets_key.json").write_text(
+        json.dumps({"current": 2, "keys": {"1": KEK, "2": KEK}})
+    )
+    assert secrets_key() == ("2", {"1": b"k" * 32, "2": b"k" * 32})
+
+
+def test_without_a_secrets_key_users_keys_cant_be_used(secrets_dir):
+    with pytest.raises(ProviderConfigError) as raised:
+        secrets_key()
+    assert raised.value.status == 500
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        # the current version isn't there
+        {"current": 2, "keys": {"1": KEK}},
+        # not AES-256
+        {"current": 1, "keys": {"1": base64.b64encode(b"short").decode()}},
+        {"current": 1, "keys": {"1": "not base64!"}},
+        # would split a record
+        {"current": "a:1", "keys": {"a:1": KEK}},
+        {"current": 1},
+        [],
+    ],
+)
+def test_an_unusable_secrets_key_is_refused_without_quoting_it(secrets_dir, contents):
+    (secrets_dir / "shabti_secrets_key.json").write_text(json.dumps(contents))
+    with pytest.raises(ProviderConfigError) as raised:
+        secrets_key()
+    assert KEK not in raised.value.message
+    assert raised.value.__cause__ is None

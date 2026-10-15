@@ -150,4 +150,31 @@ export class ShabtiAuthorizationClient extends BaseShabtiClient {
 		const json = (await res.json()) as string[];
 		return new Set(json);
 	}
+
+	// the user's own keys for the providers that take them. Only the last four characters of each
+	// are ever sent back, by provider id
+	async getApiKeys(): Promise<Record<string, string>> {
+		const res = await this.makeRequest("GET", "providers/credentials");
+		return (await res.json()) as Record<string, string>;
+	}
+
+	async setApiKey(
+		providerId: string,
+		key: string,
+	): Promise<Record<string, string>> {
+		const res = await this.makeRequest(
+			"PUT",
+			`providers/${providerId}/credential`,
+			{ key },
+		);
+		return (await res.json()) as Record<string, string>;
+	}
+
+	async deleteApiKey(providerId: string): Promise<Record<string, string>> {
+		const res = await this.makeRequest(
+			"DELETE",
+			`providers/${providerId}/credential`,
+		);
+		return (await res.json()) as Record<string, string>;
+	}
 }

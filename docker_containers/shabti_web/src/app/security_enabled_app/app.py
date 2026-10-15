@@ -2,7 +2,7 @@ import os
 from shiny import ui, Inputs, Outputs, Session, reactive, App, render
 import shinyswatch
 from ..common.collections_data import CollectionsData
-from shabti_api_client import ShabtiAuthorizationClient
+from shabti_api_client import ShabtiAuthorizationClient, ShabtiRequestError
 from shabti_keycloak import get_keycloak_client
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
@@ -15,12 +15,13 @@ from .home import home_ui, home_server
 from ..common.collection_management_ui import collection_management_ui
 from .collection_management import collection_management_server
 from .files_route import serve_files
-from shabti_types import AuthzCollectionInfo
+from shabti_types import AuthzCollectionInfo, ProviderInfo, ShabtiError
 from ..common.prompter import prompter_ui, prompter_server
 from .collection_selector_server import collection_selector_server
 from .get_api_url import get_api_url
 from ..common.update_status import update_status_reactives
 from ..common.app_assets import app_assets
+from .api_keys import api_keys_ui, api_keys_server, takes_user_keys
 
 
 app_ui = ui.page_auto(
@@ -57,6 +58,10 @@ def server(input: Inputs, output: Outputs, session: Session):
     )
     user_info = reactive.value(None)
     permissions: reactive.Value[set | None] = reactive.value(None)
+    # the providers the user can add their own key to. none in the demo, whose accounts are shared
+    user_key_providers: reactive.Value[list[ProviderInfo] | None] = reactive.value(None)
+    keys_changed = reactive.value(0)
+    user_keys = os.getenv("IS_SECURITY_DEMO") != "True"
 
     @reactive.extended_task
     async def get_info():
@@ -76,12 +81,26 @@ def server(input: Inputs, output: Outputs, session: Session):
         permissions_value = get_permissions.result()
         permissions.set(permissions_value)
 
+    @reactive.extended_task
+    async def get_providers():
+        return await client.get_providers()
+
+    @reactive.effect
+    def get_providers_effect():
+        try:
+            listed = get_providers.result()
+        except (ShabtiRequestError, ShabtiError):
+            listed = []
+        user_key_providers.set([x for x in listed if takes_user_keys(x)])
+
     @reactive.effect
     def get_user_data():
         # gate these calls behind the API status otherwise they will fail
         if api_status.get():
             get_info()
             get_permissions()
+            if user_keys:
+                get_providers()
 
     @reactive.calc
     def nav_items():
@@ -108,6 +127,14 @@ def server(input: Inputs, output: Outputs, session: Session):
                     prompter_ui("prompter"),
                 )
             )
+        # a user who can't do anything in Shabti has no use for a key, and the API refuses them one.
+        # a role counts before there's a collection for it to apply to
+        info = user_info.get() or {}
+        roles = set(
+            info.get("resource_access", {}).get("shabti-auth", {}).get("roles", [])
+        ) - {"uma_protection"}
+        if (perms or roles) and user_key_providers.get():
+            items.append(ui.nav_panel("API Keys", api_keys_ui("api_keys")))
         items.append(
             ui.nav_control(
                 ui.input_action_button("openid_logout", "Log Out", class_="my-3")
@@ -149,7 +176,9 @@ def server(input: Inputs, output: Outputs, session: Session):
         lambda str, selected_collection, collections: collection_selector_server(
             str, selected_collection, collections, user_info
         ),
+        keys_changed,
     )
+    api_keys_server("api_keys", client, user_key_providers, keys_changed)
 
     @reactive.effect
     def update_status():

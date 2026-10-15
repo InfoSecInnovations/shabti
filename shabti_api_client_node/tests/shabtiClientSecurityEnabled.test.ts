@@ -43,6 +43,7 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 			const token = await openIdClient.clientCredentialsGrant(config);
 			return new ShabtiAuthorizationClient(apiUrl("https"), token, config);
 		};
+		let loadedChatModel: string;
 		// prompting runs on whichever chat model is currently loaded, so we make sure
 		// there is one
 		beforeAll(async () => {
@@ -53,6 +54,34 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 				models.data[0]!.id;
 			for await (const item of await client.loadModel(modelName)) {
 			}
+			loadedChatModel = modelName;
+		});
+		// the test llama.cpp again, taking only users' own keys, see testing/stack.ts
+		describe("API keys", () => {
+			const provider = "stub-byok";
+			test("a key is added, listed and removed", async () => {
+				const client = await getClientForUser("testshared");
+				const model = `${provider}/${loadedChatModel}`;
+				try {
+					expect(await client.setApiKey(provider, "sk-test-1234")).toEqual({
+						[provider]: "1234",
+					});
+					expect(await client.getApiKeys()).toEqual({ [provider]: "1234" });
+					const models = await client.getProviderModels("chat");
+					expect(models.map((m) => m.id)).toContain(model);
+				} finally {
+					expect(await client.deleteApiKey(provider)).toEqual({});
+				}
+				const models = await client.getProviderModels("chat");
+				expect(models.map((m) => m.id)).not.toContain(model);
+			});
+			test("a provider taking only the shared key refuses a user's key", async () => {
+				const client = await getClientForUser("testshared");
+				await expect(client.setApiKey("stub", "sk-test-1234")).rejects.toThrow(
+					"400",
+				);
+				expect(await client.getApiKeys()).toEqual({});
+			});
 		});
 		const createCollectionForUser = (owner: string, location: string) =>
 			getAdminClient().then((client) =>
@@ -213,6 +242,40 @@ describe.if(process.env.SHABTI_SECURITY_ENABLED == "True")(
 				"update",
 				"read",
 			];
+			// their own keys for a provider. `stub-byok` takes only users' keys, see testing/stack.ts.
+			// no collection is needed: a role is access before there's a collection for it to apply to
+			const canAddApiKeyUsers = [
+				"testadmin",
+				"testshared",
+				"testprivate",
+				"testsharedread",
+			];
+			describe.each(canAddApiKeyUsers)(
+				"Node Client - Security enabled Shabti instance - users can add API keys",
+				(username) => {
+					test(`user ${username} can add an API key`, async () => {
+						const client = await getClientForUser(username);
+						try {
+							await client.setApiKey("stub-byok", "sk-test-1234");
+							expect(await client.getApiKeys()).toEqual({
+								"stub-byok": "1234",
+							});
+						} finally {
+							expect(await client.deleteApiKey("stub-byok")).toEqual({});
+						}
+					});
+				},
+			);
+			describe("Node Client - Security enabled Shabti instance - users without access cannot add API keys", () => {
+				test("user testnothing cannot add an API key", async () => {
+					const client = await getClientForUser("testnothing");
+					await expect(
+						client.setApiKey("stub-byok", "sk-test-1234"),
+					).rejects.toThrow();
+					await expect(client.getApiKeys()).rejects.toThrow();
+					await expect(client.deleteApiKey("stub-byok")).rejects.toThrow();
+				});
+			});
 			const userPermissionMappings = [
 				[
 					"testadmin",

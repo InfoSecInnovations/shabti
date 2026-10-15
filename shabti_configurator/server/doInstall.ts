@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { $ } from "bun";
 import * as envfile from "envfile";
 // import configurePlaywright from "./configurePlaywright";
 import configurePreCommit from "./configurePreCommit";
@@ -17,7 +16,10 @@ import getDefaultModelSelection, {
 	type ModelSelection,
 } from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
-import writeProviders, { writeInstanceSalt } from "./writeProviders";
+import writeProviders, {
+	writeInstanceSalt,
+	writeSecretsKey,
+} from "./writeProviders";
 import {
 	providerFromForm,
 	remoteEmbeddingsFromForm,
@@ -37,6 +39,7 @@ import ensureImages from "./ensureImages";
 import buildImages from "./buildImages";
 import { composeUp, runCompose } from "./composeProgress";
 import requireGpu from "./requireGpu";
+import { runApiModule } from "./docker";
 
 export default async function* (
 	options: FormData,
@@ -126,6 +129,7 @@ export default async function* (
 		options,
 		[],
 		options.get("embeddings_source")?.toString() == "provider",
+		securityLevel == "enabled",
 	);
 	const remoteEmbeddings = remoteEmbeddingsFromForm(options, added?.provider);
 	const embeddingsModel = remoteEmbeddings
@@ -225,6 +229,8 @@ export default async function* (
 		added?.key ? { [added.provider.id]: added.key } : {},
 	);
 	await writeInstanceSalt();
+	// users can only add keys of their own with security fully enabled
+	if (securityLevel == "enabled") await writeSecretsKey();
 	if (withLlamaCpp) {
 		yield logMessage("launching LLM service...");
 		yield* composeUp(loaderComposeFile); // launch llama.cpp
@@ -248,7 +254,7 @@ export default async function* (
 	}
 	if (securityLevel == "demo") {
 		yield logMessage("adding demo users");
-		await $`docker exec shabti uv run -m add_keycloak_demo_users`;
+		await runApiModule("add_keycloak_demo_users");
 	}
 	// TODO: wait for Llama.cpp to come online and preload the models
 	if (isLocal) {

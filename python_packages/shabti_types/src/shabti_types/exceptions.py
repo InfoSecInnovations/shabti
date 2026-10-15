@@ -184,6 +184,36 @@ class ProviderUnavailableError(ProviderError):
         )
 
 
+class ProviderKeyMissingError(ProviderError):
+    """The provider only takes users' own keys, and the requester hasn't added one."""
+
+    def __init__(self, model="", message=""):
+        super().__init__(
+            model, message or "Add your API key for this model provider", 400
+        )
+
+
+class ProviderKeyInvalidError(ProviderError):
+    """The provider rejected a key a user was saving.
+
+    A 400 rather than the 401 of `ProviderAuthError`: the clients take a 401 to mean their own
+    token has expired.
+    """
+
+    def __init__(self, model="", message=""):
+        super().__init__(model, message or "The model provider rejected this key", 400)
+
+
+class UserKeysUnavailableError(ShabtiError):
+    """Users can't bring their own keys here: in the security demo, or to a provider that doesn't
+    take them."""
+
+    def __init__(self, message="", status=403):
+        super().__init__(
+            message or "Personal API keys aren't available in the security demo", status
+        )
+
+
 class ProviderConfigError(ShabtiError):
     """The installer's record of the model providers is missing or unusable.
 

@@ -494,3 +494,29 @@ async def test_cannot_prompt(
             "question",
         ):
             pass
+
+
+# their own keys for a provider. `stub-byok` takes only users' keys, see testing/stack.ts. no
+# collection is needed: a role is access before there's a collection for it to apply to
+@pytest.mark.parametrize(
+    "shabti_user_client",
+    ["testadmin", "testshared", "testprivate", "testsharedread"],
+    indirect=True,
+)
+async def test_can_add_api_key(shabti_user_client):
+    try:
+        await shabti_user_client.set_api_key("stub-byok", "sk-test-1234")
+        assert await shabti_user_client.get_api_keys() == {"stub-byok": "1234"}
+    finally:
+        assert await shabti_user_client.delete_api_key("stub-byok") == {}
+
+
+@pytest.mark.parametrize("shabti_user_client", ["testnothing"], indirect=True)
+async def test_cannot_add_api_key(shabti_user_client):
+    # a user who can't do anything in Shabti has no use for a key
+    with pytest.raises(ShabtiAuthenticationError):
+        await shabti_user_client.set_api_key("stub-byok", "sk-test-1234")
+    with pytest.raises(ShabtiAuthenticationError):
+        await shabti_user_client.get_api_keys()
+    with pytest.raises(ShabtiAuthenticationError):
+        await shabti_user_client.delete_api_key("stub-byok")

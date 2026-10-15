@@ -95,6 +95,8 @@ async def test_get_provider_models(shabti_client, loaded_chat_model):
     assert remote["provider_id"] == "stub"
     assert remote["status"] is None
     assert all(x["category"] == "chat" for x in models.values())
+    # it only takes users' own keys, which nobody has with security disabled
+    assert not any(x["provider_id"] == "stub-byok" for x in models.values())
 
 
 async def test_the_allow_list_keeps_the_embeddings_model_from_the_stub(shabti_client):
@@ -107,4 +109,22 @@ async def test_the_allow_list_keeps_the_embeddings_model_from_the_stub(shabti_cl
 async def test_get_providers_status(shabti_client):
     response = shabti_client.get("/status/providers")
     assert response.status_code == 200
-    assert response.json() == {"local": {"running": True}, "stub": {"running": True}}
+    assert response.json() == {
+        "local": {"running": True},
+        "stub": {"running": True},
+        "stub-byok": {"running": True},
+    }
+
+
+# users' own keys need users, so their routes only exist with security enabled
+@pytest.mark.parametrize(
+    "method, url",
+    [
+        ("get", "/providers/credentials"),
+        ("put", "/providers/stub-byok/credential"),
+        ("delete", "/providers/stub-byok/credential"),
+    ],
+)
+async def test_users_keys_need_security(shabti_client, method, url):
+    response = shabti_client.request(method, url, json={"key": "sk-test"})
+    assert response.status_code == 404

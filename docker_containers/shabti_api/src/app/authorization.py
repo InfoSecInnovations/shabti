@@ -1,8 +1,10 @@
 from shabti_keycloak import (
     get_keycloak_client,
     get_keycloak_admin_client,
+    get_token_info,
     server_url,
 )
+import asyncio
 import os
 from keycloak import KeycloakPostError, KeycloakAuthenticationError
 from keycloak.exceptions import raise_error_from_response
@@ -116,6 +118,47 @@ async def list_permissions(token):
         for resource in response
     ]
     return {resource["name"] for resource in resources}
+
+
+async def user_permissions(token) -> set[str]:
+    """Everything the user can do: the collections they can create or assign, and the scopes they
+    have on at least one existing collection. Empty for a user with no access to Shabti at all."""
+    permissions, read, update, delete = await asyncio.gather(
+        list_permissions(token),
+        has_scope(token, "read"),
+        has_scope(token, "update"),
+        has_scope(token, "delete"),
+    )
+    if read:
+        permissions.add("read")
+    if update:
+        permissions.add("update")
+    if delete:
+        permissions.add("delete")
+    return permissions
+
+
+# the client's own role for looking up permissions, which says nothing about a user's access
+SERVICE_ROLES = {"uma_protection"}
+
+
+def client_roles(token_info) -> set[str]:
+    roles = (
+        token_info.get("resource_access", {}).get("shabti-auth", {}).get("roles", [])
+    )
+    return set(roles) - SERVICE_ROLES
+
+
+async def has_access(token) -> bool:
+    """Whether the user can do anything in Shabti.
+
+    A role says so before there's a collection for it to apply to, which the permissions can't: a
+    read-only user has no `read` until a collection they can read exists. The permissions cover a
+    collection shared with a user directly, without a role.
+    """
+    if client_roles(await get_token_info(token)):
+        return True
+    return bool(await user_permissions(token))
 
 
 async def list_scopes(token, resource_id):

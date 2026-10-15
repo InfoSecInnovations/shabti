@@ -1,9 +1,36 @@
+import type { CredentialMode } from "./writeProviders";
+
+const CREDENTIAL_MODE_LABELS: Record<CredentialMode, string> = {
+	shared: "Shared key",
+	user: "Each user's own key",
+	shared_or_user: "User's own key, or the shared one",
+};
+
+// users' own keys need security to be fully enabled, so this is only offered where it is
+export const CredentialModeSelect = (props: {
+	id: string;
+	name: string;
+	selected?: CredentialMode;
+}) => (
+	<p id={`${props.id}_field`}>
+		<label for={props.id}>API Keys</label>
+		<select id={props.id} name={props.name}>
+			{Object.entries(CREDENTIAL_MODE_LABELS).map(([mode, label]) => (
+				<option value={mode} selected={mode == (props.selected || "shared")}>
+					{label}
+				</option>
+			))}
+		</select>
+	</p>
+);
+
 // the install form and the provider management form both add a provider, so the ids are prefixed
 // to keep them unique on the page. wireProviderTest in the client bundle relies on them, and fills
 // `${prefix}provider_models` with the models the test finds
 export const ProviderFieldset = (props: {
 	idPrefix?: string;
 	legend: string;
+	credentialModes?: boolean;
 }) => {
 	const prefix = props.idPrefix || "";
 	return (
@@ -44,6 +71,12 @@ export const ProviderFieldset = (props: {
 			<p>
 				<small>Leave it empty for a provider that doesn't take one.</small>
 			</p>
+			{props.credentialModes ? (
+				<CredentialModeSelect
+					id={`${prefix}provider_credential_mode`}
+					name="provider_credential_mode"
+				></CredentialModeSelect>
+			) : undefined}
 			<p>
 				<label for={`${prefix}provider_headers`}>Extra Headers</label>
 				<textarea

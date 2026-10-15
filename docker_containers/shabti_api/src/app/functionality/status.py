@@ -7,7 +7,7 @@ from . import embeddings_fingerprint
 from .opensearch import get_client
 from .providers.config import LOCAL, Provider, providers_config
 from .providers.discovery import request_headers
-from .providers.keys import effective_key
+from .providers.keys import shared_key
 from .providers.registry import get_provider, local_url, split_model_id
 from .loaders.tika_client import server_endpoint
 
@@ -21,10 +21,10 @@ PROVIDER_CHECK_SECONDS = 60
 _provider_checks: dict[str, tuple[float, bool]] = {}
 
 
-async def _answers(url: str, **kwargs) -> bool:
+async def _answers(url: str, up: tuple[int, ...] = (200,), **kwargs) -> bool:
     try:
         async with httpx.AsyncClient(timeout=CHECK_TIMEOUT, **kwargs) as client:
-            return (await client.get(url)).status_code == 200
+            return (await client.get(url)).status_code in up
     except Exception:
         return False
 
@@ -39,9 +39,13 @@ async def check_provider(provider: Provider) -> bool:
     checked = _provider_checks.get(provider.id)
     if checked and time.monotonic() - checked[0] < PROVIDER_CHECK_SECONDS:
         return checked[1]
+    key = shared_key(provider)
     running = await _answers(
         f"{provider.base_url}/models",
-        headers=request_headers(provider, effective_key(provider, None)),
+        # only users' own keys are used with a provider that has no shared key, so all a check can
+        # learn is that it's there, refusing a request without one
+        up=(200,) if key else (200, 401, 403),
+        headers=request_headers(provider, key),
         follow_redirects=False,
     )
     _provider_checks[provider.id] = (time.monotonic(), running)

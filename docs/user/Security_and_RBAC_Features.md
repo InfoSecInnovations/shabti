@@ -80,6 +80,19 @@ In addition to this in the "User federation" panel you will find connectors for 
 
 It is also possible as a last resort to create accounts directly in Keycloak, features such as email verification and multi-factor authentication are supported and encouraged!
 
+## Provider API Keys
+
+A model provider can take each user's own API key instead of, or as well as, the shared one: choose "Each user's own key" or "User's own key, or the shared one" for it in the configurator. These are only offered with the security level set to "Enabled". Without security, and in the demo, whose accounts are shared, every provider uses the shared key.
+
+Users add their keys on the "API Keys" page of the web app, which lists the providers that take one. It needs a role on Shabti's client in Keycloak, or a collection the user can use. A key is tried against the provider before it is saved, and only its last four characters are shown afterwards. A provider that only takes users' own keys isn't offered to a user until they've added one.
+
+Keys are stored in a Keycloak user attribute, `shabti_provider_keys`, that only admins can see. They are encrypted with AES-256-GCM first, under a key the configurator generates at install, `docker_compose/docker_compose_dependencies/secrets/shabti_secrets_key.json`, which is mounted into the API container alone. Neither Keycloak nor its database ever holds a key in a readable form.
+
+"Rotate Encryption Key", under "Model Providers" in the "Manage Shabti" section, adds a new version of that key and re-encrypts every user's keys with it. The older versions are kept so a key can still be read if re-encrypting it failed, and the API re-encrypts any it comes across as they're used.
+
+> [!CAUTION]
+> Back up `shabti_secrets_key.json` along with Keycloak's database. Without it, the stored keys can't be read, and users have to add them again.
+
 ## Security Demo
 
 You may have noticed that you can set the security level to "Demo" when setting up your Shabti instance. This is provided so you can get a preview of the security features without having to go through any configuration steps. This is not secure at all and should never be used on a public facing network! We mostly use this for testing during development, and we have provided it publicly so you can see the potential of using RBAC with Shabti.

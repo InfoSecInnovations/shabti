@@ -1,7 +1,12 @@
 import { HTTPException } from "hono/http-exception";
 import type { RemoteEmbeddings } from "../getDefaultModelSelection";
 import { LOCAL_PROVIDER, providerId, qualify } from "../providerIds";
-import type { ProviderConfig, ProvidersConfig } from "./writeProviders";
+import {
+	CREDENTIAL_MODES,
+	type CredentialMode,
+	type ProviderConfig,
+	type ProvidersConfig,
+} from "./writeProviders";
 
 // a provider that hasn't answered by then is as good as unreachable for the admin waiting on it
 const TIMEOUT_MS = 10_000;
@@ -169,6 +174,27 @@ export const testProvider = async (options: {
 };
 
 /**
+ * Whose key a provider is used with. Users' own keys need security to be fully enabled, and the
+ * provider that embeds documents does it for everyone, so it can only have the shared key.
+ */
+export const credentialMode = (
+	raw: string,
+	name: string,
+	userKeys: boolean,
+	embeds: boolean,
+): CredentialMode => {
+	const mode = (raw || "shared") as CredentialMode;
+	if (!CREDENTIAL_MODES.includes(mode))
+		throw invalid(`${raw} is not a credential mode.`);
+	if (mode == "shared") return mode;
+	if (!userKeys)
+		throw invalid(`Users' own keys for ${name} need security to be enabled.`);
+	if (embeds)
+		throw invalid(`${name} embeds the documents, so it needs a shared key.`);
+	return mode;
+};
+
+/**
  * The provider a form adds, from the fields ProviderFieldset renders, or undefined when they
  * were left empty. Checked before an install or a change touches anything, so a mistake leaves
  * things as they were. One added only to embed with offers none of its chat models.
@@ -177,6 +203,7 @@ export const providerFromForm = (
 	form: FormData,
 	existingIds: string[],
 	embedsOnly = false,
+	userKeys = false,
 ): { provider: ProviderConfig; key?: string } | undefined => {
 	const field = (name: string) => form.get(name)?.toString().trim() ?? "";
 	const name = field("provider_name");
@@ -197,12 +224,19 @@ export const providerFromForm = (
 		);
 	const headers = parseHeaders(field("provider_headers"));
 	const key = field("provider_key");
+	const mode = credentialMode(
+		field("provider_credential_mode"),
+		name,
+		userKeys,
+		embedsOnly,
+	);
 	return {
 		provider: {
 			id,
 			name,
 			base_url: normaliseBaseUrl(baseUrl),
 			...(Object.keys(headers).length ? { headers } : {}),
+			...(mode != "shared" ? { credential_mode: mode } : {}),
 			// an empty list rather than none, which would offer every model it lists
 			models: { allow: models },
 		},

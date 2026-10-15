@@ -2,7 +2,8 @@ from shabti_types import ModelNotFoundError, ProviderModelInfo
 from .models import ACTIVE_STATUSES, default_model_id, get_models
 from .providers.config import LOCAL, providers_config
 from .providers.discovery import list_all_models
-from .providers.registry import ChatModel, get_provider, qualify
+from .providers.keys import effective_key, user_keys_enabled
+from .providers.registry import ChatModel, get_provider, qualify, split_model_id
 from .user_settings import get_user_chat_model, set_user_chat_model
 
 # credentials are None when security is disabled, in which case Shabti is treated as a single
@@ -67,6 +68,7 @@ async def resolve_prompt_model(
         raise ModelNotFoundError(message="No chat model is available")
     model = next((x for x in models if x.id == model_id), None)
     if not model:
+        await require_user_key(credentials, model_id)
         raise ModelNotFoundError(
             model=model_id, message=f"Model {model_id} is not available"
         )
@@ -76,3 +78,16 @@ async def resolve_prompt_model(
             model=model_id, message=f"Model {model_id} is not loaded"
         )
     return ChatModel(provider=get_provider(model.provider_id), model_id=model.model_id)
+
+
+async def require_user_key(credentials: str | None, model_id: str):
+    """Raises the reason a model is missing when it is the requester's key, rather than leaving it
+    as "not available": a provider that only takes users' own keys isn't listed for one without."""
+    if not user_keys_enabled():
+        return
+    try:
+        provider = get_provider(split_model_id(model_id)[0])
+    except ModelNotFoundError:
+        return
+    if provider.credential_mode == "user":
+        await effective_key(provider, credentials)

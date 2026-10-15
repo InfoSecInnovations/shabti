@@ -130,6 +130,12 @@ class ProviderInfo(BaseModel):
     has_shared_key: bool
 
 
+class ProviderKeyInfo(BaseModel):
+    """A user's own key for a provider, on its way to being stored. It is never sent back."""
+
+    key: str
+
+
 class ProviderModelInfo(BaseModel):
     # qualified as `<provider_id>/<model_id>`, which is what a prompt or a selection names
     id: str

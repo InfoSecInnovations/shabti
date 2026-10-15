@@ -426,6 +426,15 @@ const setFormVisibility = () => {
 	document
 		.getElementById("embeddings_tokenizer_repo_container")
 		?.classList.toggle("hidden", formData.get("embeddings_tokenizer") != "hf");
+	// users' own keys need security to be fully enabled, so it's back to the shared key otherwise
+	const userKeys = formData.get("security_level") == "enabled";
+	document
+		.getElementById("provider_credential_mode_field")
+		?.classList.toggle("hidden", !userKeys);
+	const credentialMode = document.getElementById(
+		"provider_credential_mode",
+	) as HTMLSelectElement | null;
+	if (credentialMode && !userKeys) credentialMode.value = "shared";
 	const keycloakConfig = document.getElementById("keycloak_config");
 	if (formData.get("security_level") != "none") {
 		keycloakConfig?.classList.remove("hidden");

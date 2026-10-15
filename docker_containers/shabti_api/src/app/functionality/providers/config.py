@@ -21,7 +21,9 @@ LOCAL = "local"
 
 SLUG = re.compile(r"[a-z0-9-]+")
 
-CREDENTIAL_MODES = ("shared",)
+# whose key a request is made with: the admin's, the requesting user's own, or the user's when
+# they've added one and otherwise the admin's. users' keys need security fully enabled, see `keys`
+CREDENTIAL_MODES = ("shared", "user", "shared_or_user")
 
 
 @dataclass(frozen=True)
@@ -99,8 +101,12 @@ def parse_embeddings(raw, providers: tuple[Provider, ...]) -> EmbeddingsConfig |
     provider_id, _, model_id = (model if isinstance(model, str) else "").partition("/")
     if not provider_id or not model_id:
         raise invalid("the embeddings model must be named as <provider>/<model>")
-    if provider_id != LOCAL and provider_id not in {x.id for x in providers}:
+    provider = next((x for x in providers if x.id == provider_id), None)
+    if provider_id != LOCAL and not provider:
         raise invalid(f"the embeddings model's provider {provider_id} isn't configured")
+    # documents are embedded for everyone at once, so there is no user whose key it could be
+    if provider and provider.credential_mode != "shared":
+        raise invalid("the embeddings model's provider must use a shared key")
     dimensions = raw.get("dimensions")
     # a bool is an int as far as isinstance is concerned
     whole = isinstance(dimensions, int) and not isinstance(dimensions, bool)

@@ -64,6 +64,9 @@ def prompter_server(
     opensearch_status: reactive.Value,
     embeddings_status: reactive.Value,
     collection_selector_server,
+    # bumped when the user adds or removes one of their own API keys, which changes the models
+    # they're offered. only with security enabled
+    keys_changed: reactive.Value[int] | None = None,
 ):
     llm_loaded = reactive.value(False)
     tasks: reactive.Value[dict[str, TaskInfo] | None] = reactive.value(None)
@@ -158,6 +161,13 @@ def prompter_server(
     @reactive.effect
     def init():
         if embeddings_status.get() and chat_models.get() is None:
+            init_models()
+
+    if keys_changed is not None:
+
+        @reactive.effect
+        @reactive.event(keys_changed, ignore_init=True)
+        def on_keys_changed():
             init_models()
 
     @render.ui

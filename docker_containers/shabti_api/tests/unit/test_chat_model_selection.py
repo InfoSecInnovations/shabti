@@ -4,10 +4,12 @@ The providers and Keycloak are stubbed on the module under test: the model list 
 returns across every provider, and the stored selection is whatever the user last picked.
 """
 
+from dataclasses import replace
 import pytest
-from shabti_types import ModelNotFoundError, ProviderModelInfo
+from shabti_types import ModelNotFoundError, ProviderKeyMissingError, ProviderModelInfo
 
 from ...src.app.functionality import chat_model_selection as selection_module
+from ...src.app.functionality.providers import keys as keys_module
 from ...src.app.functionality.chat_model_selection import (
     chat_model_selection,
     resolve_prompt_model,
@@ -223,3 +225,37 @@ async def test_an_unlisted_model_is_not_stored(models, default, stored):
     with pytest.raises(ModelNotFoundError):
         await set_chat_model_selection("a-token", "remote/not-listed")
     assert stored.saved == []
+
+
+@pytest.fixture
+def without_own_key(monkeypatch, models):
+    """A provider only taking users' own keys, with security fully enabled and no key added."""
+
+    async def get_user_key(credentials, provider_id):
+        return None
+
+    monkeypatch.setattr(keys_module, "get_user_key", get_user_key)
+    monkeypatch.setenv("SHABTI_SECURITY_ENABLED", "True")
+    monkeypatch.delenv("IS_SECURITY_DEMO", raising=False)
+    monkeypatch.setattr(
+        selection_module,
+        "get_provider",
+        lambda provider_id: replace(REMOTE, credential_mode="user"),
+    )
+
+
+async def test_a_model_needing_the_users_own_key_asks_for_it(
+    models, default, without_own_key
+):
+    # discovery leaves the provider out for a user without a key, which isn't the reason to give
+    with pytest.raises(ProviderKeyMissingError) as raised:
+        await resolve_prompt_model("a-token", "remote/not-listed")
+    assert raised.value.message == "Add your API key for Remote"
+
+
+async def test_without_security_a_model_needing_a_users_key_is_just_unavailable(
+    monkeypatch, models, default, without_own_key
+):
+    monkeypatch.setenv("SHABTI_SECURITY_ENABLED", "False")
+    with pytest.raises(ModelNotFoundError):
+        await resolve_prompt_model(None, "remote/not-listed")

@@ -173,10 +173,16 @@ async def test_get_provider_models(shabti_client, loaded_chat_model):
     assert models[f"local/{loaded_chat_model}"].status == "loaded"
     assert models[f"stub/{loaded_chat_model}"].model_id == loaded_chat_model
     assert all(x.category == "chat" for x in models.values())
+    # it only takes users' own keys, which nobody has with security disabled
+    assert not any(x.provider_id == "stub-byok" for x in models.values())
 
 
 async def test_provider_status(shabti_client):
-    assert await shabti_client.provider_status() == {"local": True, "stub": True}
+    assert await shabti_client.provider_status() == {
+        "local": True,
+        "stub": True,
+        "stub-byok": True,
+    }
 
 
 async def test_get_chat_model_selection(shabti_client, loaded_chat_model):

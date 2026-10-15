@@ -154,3 +154,21 @@ class ShabtiAuthorizationClient(BaseShabtiClient):
             "GET", f"/collections/{collection_id}/scopes"
         )
         return set(response.json())
+
+    # the user's own keys for the providers that take them. only the last four characters of each
+    # are ever sent back, by provider id
+    async def get_api_keys(self) -> dict[str, str]:
+        response = await self._make_request("GET", "providers/credentials")
+        return response.json()
+
+    async def set_api_key(self, provider_id: str, key: str) -> dict[str, str]:
+        response = await self._make_request(
+            "PUT", f"providers/{provider_id}/credential", {"key": key}
+        )
+        return response.json()
+
+    async def delete_api_key(self, provider_id: str) -> dict[str, str]:
+        response = await self._make_request(
+            "DELETE", f"providers/{provider_id}/credential"
+        )
+        return response.json()

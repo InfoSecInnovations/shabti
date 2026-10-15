@@ -121,7 +121,7 @@ async def prompt_chunks(
     try:
         async for x in stream_response(
             model=model,
-            api_key=effective_key(model.provider, token),
+            api_key=await effective_key(model.provider, token),
             user=await provider_user(model.provider, token),
             context=context["context"],
             task_prompt=task_prompt,

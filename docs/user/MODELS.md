@@ -71,6 +71,7 @@ The configurator records providers in `docker_compose/docker_compose_dependencie
 - `base_url` includes the API version, usually ending in `/v1`.
 - `allow` limits which of the provider's models are offered. Leave it out to offer them all, or leave it empty to offer none, for a provider that only embeds.
 - `overrides` correct what Shabti works out about a model: its `category` (`chat` or `embeddings`), `context_length` and `label`.
+- `credential_mode` is whose key requests are made with: `shared` (the default) for the key below, `user` for each user's own, or `shared_or_user` for the user's own when they've added one and otherwise the shared key. Users' own keys need security to be enabled, see [Provider API Keys](Security_and_RBAC_Features.md#provider-api-keys). The provider of the embeddings model always uses the shared key.
 - `default_chat_model` is the model a user starts on before they choose one.
 
 Shabti looks up each remote model's context length on [models.dev](https://models.dev), in a copy the configurator downloads each time it starts. A model it can't find there is assumed to take 8k tokens, unless the provider's model list or `overrides` say otherwise.

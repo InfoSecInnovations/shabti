@@ -225,3 +225,7 @@ export const startModelProbe = (image: string, name: string, port: number) =>
 
 export const removeContainer = (name: string) =>
 	$`docker container rm --force ${name}`.quiet().nothrow();
+
+/** runs one of the API's maintenance modules inside its running container */
+export const runApiModule = (module: string) =>
+	$`docker exec shabti uv run -m ${module}`;

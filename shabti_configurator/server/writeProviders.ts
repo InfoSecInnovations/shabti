@@ -9,13 +9,18 @@ export interface ModelOverride {
 	label?: string;
 }
 
+// whose key a request is made with: the admin's, the requesting user's own, or the user's when
+// they've added one and otherwise the admin's. Users' keys need security to be fully enabled
+export const CREDENTIAL_MODES = ["shared", "user", "shared_or_user"] as const;
+export type CredentialMode = (typeof CREDENTIAL_MODES)[number];
+
 /** an OpenAI-compatible API the API can send prompts to, as it reads it */
 export interface ProviderConfig {
 	id: string;
 	name: string;
 	base_url: string;
 	headers?: Record<string, string>;
-	credential_mode?: "shared";
+	credential_mode?: CredentialMode;
 	user_id_field?: string;
 	// without allow every model the provider lists is offered, and an empty one offers none
 	models?: { allow?: string[]; overrides?: Record<string, ModelOverride> };
@@ -50,6 +55,15 @@ export const getProviderKeysPath = (baseDir = path.resolve()) =>
 
 export const getInstanceSaltPath = (baseDir = path.resolve()) =>
 	path.join(getSecretsDir(baseDir), "shabti_instance_salt");
+
+export const getSecretsKeyPath = (baseDir = path.resolve()) =>
+	path.join(getSecretsDir(baseDir), "shabti_secrets_key.json");
+
+/** each version of the key users' own provider keys are encrypted with, and the one in use */
+export interface SecretsKey {
+	current: number;
+	keys: Record<string, string>;
+}
 
 const replaceFile = async (
 	filePath: string,
@@ -92,6 +106,36 @@ export const writeInstanceSalt = async (baseDir = path.resolve()) => {
 	const saltPath = getInstanceSaltPath(baseDir);
 	await replaceFile(saltPath, crypto.randomBytes(32).toString("hex"), 0o600);
 	return saltPath;
+};
+
+// AES-256, as the API decrypts with
+const newSecretsKey = () => crypto.randomBytes(32).toString("base64");
+
+/** The key the API encrypts users' own provider keys with before they're stored in Keycloak. */
+export const writeSecretsKey = async (baseDir = path.resolve()) => {
+	const keyPath = getSecretsKeyPath(baseDir);
+	const secretsKey: SecretsKey = { current: 1, keys: { 1: newSecretsKey() } };
+	await replaceFile(keyPath, JSON.stringify(secretsKey), 0o600);
+	return keyPath;
+};
+
+/**
+ * Adds a version of the key that new keys are encrypted with, and returns it. The older versions
+ * are kept so the keys they encrypted can still be read until they're re-encrypted.
+ */
+export const rotateSecretsKey = async (baseDir = path.resolve()) => {
+	const keyPath = getSecretsKeyPath(baseDir);
+	const existing = await readJson<SecretsKey>(keyPath, {
+		current: 0,
+		keys: {},
+	});
+	const current = Math.max(0, ...Object.keys(existing.keys).map(Number)) + 1;
+	const secretsKey: SecretsKey = {
+		current,
+		keys: { ...existing.keys, [current]: newSecretsKey() },
+	};
+	await replaceFile(keyPath, JSON.stringify(secretsKey), 0o600);
+	return current;
 };
 
 const readJson = async <T>(filePath: string, fallback: T): Promise<T> => {

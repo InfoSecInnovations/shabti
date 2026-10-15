@@ -51,6 +51,8 @@ services:
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID}
       - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
       - ROOT_CA=/opensearch_certs/root-ca.pem
+      # the demo's accounts are shared, so users can't bring their own provider keys to it
+      - IS_SECURITY_DEMO=${IS_SECURITY_DEMO:-False}
     volumes:
       # even if this config isn't used, Docker complains about empty strings so we add a placeholder here
       - ${API_CERT:-empty}:/api_certs/cert.pem
@@ -81,6 +83,8 @@ services:
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID}
       - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
       - ROOT_CA=/opensearch_certs/root-ca.pem
+      # the demo's accounts are shared, so users can't bring their own provider keys to it
+      - IS_SECURITY_DEMO=${IS_SECURITY_DEMO:-False}
     volumes:
       # even if this config isn't used, Docker complains about empty strings so we add a placeholder here
       - ${WEB_CERT:-empty}:/web_certs/cert.pem

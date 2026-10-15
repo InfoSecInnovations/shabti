@@ -316,6 +316,60 @@ describe("providerFromForm", () => {
 			providerFromForm(form(PROVIDER_FORM), ["open-router"]),
 		).toThrow("There is already a model provider called Open Router.");
 	});
+
+	test("leaves the shared key mode unwritten", () => {
+		const added = providerFromForm(
+			form({ ...PROVIDER_FORM, provider_credential_mode: "shared" }),
+			[],
+			false,
+			true,
+		);
+		expect(added?.provider.credential_mode).toBeUndefined();
+	});
+
+	test.each(["user", "shared_or_user"])(
+		"takes users' own keys (%p) with security enabled",
+		(mode) => {
+			const added = providerFromForm(
+				form({ ...PROVIDER_FORM, provider_credential_mode: mode }),
+				[],
+				false,
+				true,
+			);
+			expect(added?.provider.credential_mode).toBe(mode as any);
+		},
+	);
+
+	test("refuses users' own keys without security", () => {
+		expect(() =>
+			providerFromForm(
+				form({ ...PROVIDER_FORM, provider_credential_mode: "user" }),
+				[],
+			),
+		).toThrow("Users' own keys for Open Router need security to be enabled.");
+	});
+
+	test("refuses users' own keys for the provider that embeds", () => {
+		expect(() =>
+			providerFromForm(
+				form({ ...PROVIDER_FORM, provider_credential_mode: "user" }),
+				[],
+				true,
+				true,
+			),
+		).toThrow("Open Router embeds the documents, so it needs a shared key.");
+	});
+
+	test("refuses a mode it doesn't know", () => {
+		expect(() =>
+			providerFromForm(
+				form({ ...PROVIDER_FORM, provider_credential_mode: "per-user" }),
+				[],
+				false,
+				true,
+			),
+		).toThrow("per-user is not a credential mode.");
+	});
 });
 
 describe("the default chat model", () => {
