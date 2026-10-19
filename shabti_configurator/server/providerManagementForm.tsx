@@ -1,5 +1,5 @@
 import getEnvs from "./getEnvs";
-import { CredentialModeSelect, ProviderFieldset } from "./providerFieldset";
+import { CredentialModeSelect, ProviderList } from "./providerFieldset";
 import { userKeysEnabled } from "./userKeys";
 import { readProviders } from "./writeProviders";
 
@@ -54,11 +54,10 @@ export const ProviderManagementForm = async () => {
 					) : (
 						<p>No model providers are configured.</p>
 					)}
-					<ProviderFieldset
-						idPrefix="manage_"
-						legend="Add a Model Provider"
+					<ProviderList
+						formPrefix="manage_"
 						credentialModes={userKeys}
-					></ProviderFieldset>
+					></ProviderList>
 					<button type="submit">Apply Provider Changes</button>
 				</fieldset>
 			</form>

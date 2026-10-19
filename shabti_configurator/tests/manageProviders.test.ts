@@ -53,10 +53,11 @@ describe("manageProviders", () => {
 		await drain(
 			manageProviders(
 				form({
-					provider_name: "New",
-					provider_base_url: "https://new.test/v1/models",
-					provider_key: "sk-new",
-					provider_model: "chat",
+					provider_prefix: "manage_0_",
+					manage_0_provider_name: "New",
+					manage_0_provider_base_url: "https://new.test/v1/models",
+					manage_0_provider_key: "sk-new",
+					manage_0_provider_model: "chat",
 				}),
 			),
 		);
@@ -68,6 +69,37 @@ describe("manageProviders", () => {
 		]);
 		expect(config.providers[2]!.base_url).toBe("https://new.test/v1");
 		expect(keys.new).toBe("sk-new");
+	});
+
+	test("adds several providers at once", async () => {
+		const { updates } = await drain(
+			manageProviders(
+				form({
+					provider_prefix: ["manage_0_", "manage_2_"],
+					manage_0_provider_name: "New",
+					manage_0_provider_base_url: "https://new.test/v1",
+					manage_0_provider_key: "sk-new",
+					manage_0_provider_model: "chat",
+					manage_2_provider_name: "Newer",
+					manage_2_provider_base_url: "https://newer.test/v1",
+					manage_2_provider_model: ["chat", "code"],
+				}),
+			),
+		);
+		const { config, keys } = await readProviders();
+		expect(config.providers.map((p) => p.id)).toEqual([
+			"remote",
+			"other",
+			"new",
+			"newer",
+		]);
+		expect(config.providers[3]!.models).toEqual({ allow: ["chat", "code"] });
+		expect(keys).toEqual({
+			remote: "sk-remote",
+			other: "sk-other",
+			new: "sk-new",
+		});
+		expect(updates.join("\n")).toContain("adding Newer...");
 	});
 
 	test("removes a provider, its key and the default it was", async () => {
@@ -101,9 +133,10 @@ describe("manageProviders", () => {
 			manageProviders(
 				form({
 					remove_provider: "remote",
-					provider_name: "Remote",
-					provider_base_url: "https://moved.test/v1",
-					provider_model: "chat",
+					provider_prefix: "manage_0_",
+					manage_0_provider_name: "Remote",
+					manage_0_provider_base_url: "https://moved.test/v1",
+					manage_0_provider_model: "chat",
 				}),
 			),
 		);
@@ -122,9 +155,10 @@ describe("manageProviders", () => {
 				manageProviders(
 					form({
 						remove_provider: "other",
-						provider_name: "Remote",
-						provider_base_url: "https://api.test/v1",
-						provider_model: "chat",
+						provider_prefix: "manage_0_",
+						manage_0_provider_name: "Remote",
+						manage_0_provider_base_url: "https://api.test/v1",
+						manage_0_provider_model: "chat",
 					}),
 				),
 			),
@@ -204,10 +238,11 @@ describe("whose key a provider uses", () => {
 		await drain(
 			manageProviders(
 				form({
-					provider_name: "New",
-					provider_base_url: "https://new.test/v1",
-					provider_model: "chat",
-					provider_credential_mode: "user",
+					provider_prefix: "manage_0_",
+					manage_0_provider_name: "New",
+					manage_0_provider_base_url: "https://new.test/v1",
+					manage_0_provider_model: "chat",
+					manage_0_provider_credential_mode: "user",
 				}),
 			),
 		);

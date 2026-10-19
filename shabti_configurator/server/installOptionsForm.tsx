@@ -6,7 +6,7 @@ import currentIsLocal from "./currentIsLocal";
 import listCompatibleVersions from "./listCompatibleVersions";
 import { ConnectivityNotice } from "./connectivityNotice";
 import { ChatModelSelector, resolveModelSelection } from "./chatModelSelector";
-import { ProviderFieldset } from "./providerFieldset";
+import { ProviderList } from "./providerFieldset";
 import {
 	DEFAULT_REMOTE_BATCH_SIZE,
 	DEFAULT_REMOTE_CHUNK_SIZE,
@@ -164,10 +164,10 @@ export const InstallOptionsForm = async (props: {
 					</small>
 				</p>
 			</fieldset>
-			<ProviderFieldset
-				legend="Model Provider"
-				credentialModes
-			></ProviderFieldset>
+			<fieldset>
+				<legend>Model Providers</legend>
+				<ProviderList formPrefix="install_" credentialModes></ProviderList>
+			</fieldset>
 			<LoggingFieldset></LoggingFieldset>
 			<HostsAndPortsFieldset></HostsAndPortsFieldset>
 			<fieldset>

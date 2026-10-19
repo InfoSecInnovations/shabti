@@ -195,17 +195,19 @@ export const credentialMode = (
 };
 
 /**
- * The provider a form adds, from the fields ProviderFieldset renders, or undefined when they
- * were left empty. Checked before an install or a change touches anything, so a mistake leaves
- * things as they were. One added only to embed with offers none of its chat models.
+ * The provider a form adds, from the fields ProviderFieldset renders with the given prefix, or
+ * undefined when they were left empty. Checked before an install or a change touches anything, so
+ * a mistake leaves things as they were. One added only to embed with offers none of its chat models.
  */
 export const providerFromForm = (
 	form: FormData,
 	existingIds: string[],
 	embedsOnly = false,
 	userKeys = false,
+	prefix = "",
 ): { provider: ProviderConfig; key?: string } | undefined => {
-	const field = (name: string) => form.get(name)?.toString().trim() ?? "";
+	const field = (name: string) =>
+		form.get(`${prefix}${name}`)?.toString().trim() ?? "";
 	const name = field("provider_name");
 	const baseUrl = field("provider_base_url");
 	if (!name && !baseUrl) return undefined;
@@ -217,7 +219,9 @@ export const providerFromForm = (
 	if (existingIds.includes(id))
 		throw invalid(`There is already a model provider called ${name}.`);
 	if (!baseUrl) throw invalid(`Give ${name} a base URL.`);
-	const models = form.getAll("provider_model").map((v) => v.toString());
+	const models = form
+		.getAll(`${prefix}provider_model`)
+		.map((v) => v.toString());
 	if (!models.length && !embedsOnly)
 		throw invalid(
 			`Test the connection to ${name} and choose at least one of its models.`,
@@ -244,6 +248,54 @@ export const providerFromForm = (
 	};
 };
 
+/**
+ * The provider whose model the install form embeds with, and the model, or undefined to embed
+ * with a local one. The form names the model after the prefix of the fieldset it came from, as
+ * `prefix:model`: a prefix has no colon in it, while a model id can.
+ */
+export const embeddingsChoice = (form: FormData) => {
+	if (form.get("embeddings_source")?.toString() != "provider") return undefined;
+	const value = form.get("remote_embeddings_model")?.toString() ?? "";
+	const separator = value.indexOf(":");
+	if (separator < 0) return undefined;
+	return {
+		prefix: value.slice(0, separator),
+		model: value.slice(separator + 1).trim(),
+	};
+};
+
+export type AddedProvider = {
+	prefix: string;
+	provider: ProviderConfig;
+	key?: string;
+};
+
+/**
+ * Every provider a form adds, one for each ProviderFieldset that was filled in, in the order they
+ * were. A name can't be used twice, among them or with the providers there already are.
+ */
+export const providersFromForm = (
+	form: FormData,
+	existingIds: string[],
+	userKeys = false,
+) => {
+	const embedsWith = embeddingsChoice(form)?.prefix;
+	const added: AddedProvider[] = [];
+	for (const prefix of new Set(
+		form.getAll("provider_prefix").map((v) => v.toString()),
+	)) {
+		const provider = providerFromForm(
+			form,
+			[...existingIds, ...added.map((a) => a.provider.id)],
+			prefix == embedsWith,
+			userKeys,
+			prefix,
+		);
+		if (provider) added.push({ prefix, ...provider });
+	}
+	return added;
+};
+
 // what a provider's embeddings model is set up with when the admin doesn't say. a chunk is a passage
 // someone gets shown, and a remote model is metered and rate limited per request
 export const DEFAULT_REMOTE_CHUNK_SIZE = 512;
@@ -266,20 +318,23 @@ const wholeNumber = (raw: string, label: string) => {
 
 /**
  * The provider's model the install embeds with, from the embeddings fields of the install form, or
- * undefined to embed with a local model. The provider is the one the same form adds, since there
- * is no other before Shabti is installed.
+ * undefined to embed with a local model. The provider is one of those the same form adds, since
+ * there are no others before Shabti is installed.
  */
 export const remoteEmbeddingsFromForm = (
 	form: FormData,
-	provider: ProviderConfig | undefined,
+	added: Pick<AddedProvider, "prefix" | "provider">[],
 ): RemoteEmbeddings | undefined => {
 	const field = (name: string) => form.get(name)?.toString().trim() ?? "";
 	if (field("embeddings_source") != "provider") return undefined;
-	if (!provider) throw invalid("Add a model provider to embed with it.");
-	const model = field("remote_embeddings_model");
-	if (!model)
+	if (!added.length) throw invalid("Add a model provider to embed with it.");
+	const choice = embeddingsChoice(form);
+	// the fieldset the model was chosen from may have been emptied or removed since
+	const provider = added.find((a) => a.prefix == choice?.prefix)?.provider;
+	const model = choice?.model;
+	if (!provider || !model)
 		throw invalid(
-			`Test the connection to ${provider.name} and choose its embeddings model.`,
+			"Test the connection to a model provider and choose its embeddings model.",
 		);
 	let tokenizer = field("embeddings_tokenizer") || "estimate";
 	if (!TOKENIZERS.includes(tokenizer))

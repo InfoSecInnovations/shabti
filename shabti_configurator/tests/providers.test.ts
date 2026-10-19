@@ -5,6 +5,7 @@ import {
 	normaliseBaseUrl,
 	parseHeaders,
 	providerFromForm,
+	providersFromForm,
 	remoteEmbeddingsFromForm,
 	remoteModels,
 	resolveDefaultModel,
@@ -370,6 +371,119 @@ describe("providerFromForm", () => {
 			),
 		).toThrow("per-user is not a credential mode.");
 	});
+
+	test("reads the fields with the given prefix", () => {
+		const added = providerFromForm(
+			form({
+				p_provider_name: "Acme",
+				p_provider_base_url: "https://api.acme.test/v1",
+				p_provider_model: "chat",
+				...PROVIDER_FORM,
+			}),
+			[],
+			false,
+			false,
+			"p_",
+		);
+		expect(added?.provider.id).toBe("acme");
+		expect(added?.provider.models).toEqual({ allow: ["chat"] });
+	});
+});
+
+describe("providersFromForm", () => {
+	// the fields of one ProviderFieldset, as the form submits them
+	const fieldset = (
+		prefix: string,
+		fields: Record<string, string | string[]>,
+	): Record<string, string | string[]> => ({
+		provider_prefix: prefix,
+		...Object.fromEntries(
+			Object.entries(fields).map(([name, value]) => [
+				`${prefix}${name}`,
+				value,
+			]),
+		),
+	});
+	// FormData keeps every value of a name, which a spread of objects wouldn't
+	const forms = (...fieldsets: Record<string, string | string[]>[]) => {
+		const data = new FormData();
+		for (const fields of fieldsets)
+			for (const [name, value] of Object.entries(fields))
+				for (const item of [value].flat()) data.append(name, item);
+		return data;
+	};
+
+	test("adds every fieldset filled in, in order, with their keys", () => {
+		const added = providersFromForm(
+			forms(
+				fieldset("a_", PROVIDER_FORM),
+				fieldset("b_", { provider_name: "", provider_base_url: "" }),
+				fieldset("c_", {
+					provider_name: "Acme",
+					provider_base_url: "https://api.acme.test/v1",
+					provider_model: "chat",
+				}),
+			),
+			[],
+		);
+		expect(added.map((a) => [a.prefix, a.provider.id, a.key])).toEqual([
+			["a_", "open-router", "sk-1"],
+			["c_", "acme", undefined],
+		]);
+	});
+
+	test("is nothing without any fieldsets", () => {
+		expect(providersFromForm(new FormData(), [])).toEqual([]);
+	});
+
+	test("refuses a name used twice", () => {
+		expect(() =>
+			providersFromForm(
+				forms(fieldset("a_", PROVIDER_FORM), fieldset("b_", PROVIDER_FORM)),
+				[],
+			),
+		).toThrow("There is already a model provider called Open Router.");
+	});
+
+	test("refuses a name a configured provider has", () => {
+		expect(() =>
+			providersFromForm(forms(fieldset("a_", PROVIDER_FORM)), ["open-router"]),
+		).toThrow("There is already a model provider called Open Router.");
+	});
+
+	test("lets only the provider that embeds go without chat models", () => {
+		const embedding = {
+			embeddings_source: "provider",
+			remote_embeddings_model: "b_:text-embed-3",
+		};
+		const added = providersFromForm(
+			forms(
+				fieldset("a_", PROVIDER_FORM),
+				fieldset("b_", {
+					provider_name: "Acme",
+					provider_base_url: "https://api.acme.test/v1",
+				}),
+				embedding,
+			),
+			[],
+		);
+		expect(added[1]!.provider.models).toEqual({ allow: [] });
+		expect(() =>
+			providersFromForm(
+				forms(
+					fieldset("a_", { ...PROVIDER_FORM, provider_model: [] }),
+					fieldset("b_", {
+						provider_name: "Acme",
+						provider_base_url: "https://api.acme.test/v1",
+					}),
+					embedding,
+				),
+				[],
+			),
+		).toThrow(
+			"Test the connection to Open Router and choose at least one of its models.",
+		);
+	});
 });
 
 describe("the default chat model", () => {
@@ -420,12 +534,14 @@ describe("remoteEmbeddingsFromForm", () => {
 		name: "Acme",
 		base_url: "https://api.acme.test/v1",
 	};
+	// the fieldset the provider was added with, which the chosen model is named after
+	const ADDED = [{ prefix: "acme_", provider: PROVIDER }];
 
 	test("is nothing when the embeddings are local", () => {
 		expect(
-			remoteEmbeddingsFromForm(form({ embeddings_source: "local" }), PROVIDER),
+			remoteEmbeddingsFromForm(form({ embeddings_source: "local" }), ADDED),
 		).toBeUndefined();
-		expect(remoteEmbeddingsFromForm(form({}), PROVIDER)).toBeUndefined();
+		expect(remoteEmbeddingsFromForm(form({}), ADDED)).toBeUndefined();
 	});
 
 	test("names the provider's model, with defaults for what wasn't given", () => {
@@ -433,12 +549,12 @@ describe("remoteEmbeddingsFromForm", () => {
 			remoteEmbeddingsFromForm(
 				form({
 					embeddings_source: "provider",
-					remote_embeddings_model: "text-embed-3",
+					remote_embeddings_model: "acme_:text-embed-3",
 					embeddings_dimensions: "",
 					embeddings_chunk_size: "",
 					embeddings_batch_size: "",
 				}),
-				PROVIDER,
+				ADDED,
 			),
 		).toEqual({
 			model: "acme/text-embed-3",
@@ -451,13 +567,13 @@ describe("remoteEmbeddingsFromForm", () => {
 			remoteEmbeddingsFromForm(
 				form({
 					embeddings_source: "provider",
-					remote_embeddings_model: "text-embed-3",
+					remote_embeddings_model: "acme_:text-embed-3",
 					embeddings_dimensions: "256",
 					embeddings_chunk_size: "1024",
 					embeddings_tokenizer: "tiktoken:cl100k_base",
 					embeddings_batch_size: "16",
 				}),
-				PROVIDER,
+				ADDED,
 			),
 		).toEqual({
 			model: "acme/text-embed-3",
@@ -474,18 +590,42 @@ describe("remoteEmbeddingsFromForm", () => {
 		const embeddings = remoteEmbeddingsFromForm(
 			form({
 				embeddings_source: "provider",
-				remote_embeddings_model: "bge-m3",
+				remote_embeddings_model: "acme_:bge-m3",
 				embeddings_tokenizer: "hf",
 				embeddings_tokenizer_repo: "BAAI/bge-m3",
 			}),
-			PROVIDER,
+			ADDED,
 		);
 		expect(embeddings?.settings.tokenizer).toBe("hf:BAAI/bge-m3");
+	});
+
+	test("names the model after the provider it was chosen from", () => {
+		const embeddings = remoteEmbeddingsFromForm(
+			form({
+				embeddings_source: "provider",
+				remote_embeddings_model: "other_:vendor/embed:v2",
+			}),
+			[
+				...ADDED,
+				{
+					prefix: "other_",
+					provider: { ...PROVIDER, id: "other", name: "Other" },
+				},
+			],
+		);
+		// split at the first colon, a model id can have more
+		expect(embeddings?.model).toBe("other/vendor/embed:v2");
 	});
 
 	test.each([
 		[{}, "Add a model provider"],
 		[{ remote_embeddings_model: "" }, "choose its embeddings model"],
+		[{ remote_embeddings_model: "acme_:" }, "choose its embeddings model"],
+		// the fieldset it was chosen from was emptied or removed
+		[
+			{ remote_embeddings_model: "gone_:text-embed-3" },
+			"choose its embeddings model",
+		],
 		[{ embeddings_tokenizer: "sentencepiece" }, "not a tokenizer"],
 		[{ embeddings_tokenizer: "hf" }, "as owner/name"],
 		[
@@ -496,15 +636,14 @@ describe("remoteEmbeddingsFromForm", () => {
 		[{ embeddings_batch_size: "1.5" }, "Batch size"],
 		[{ embeddings_dimensions: "many" }, "Dimensions"],
 	])("refuses %p", (fields, message) => {
-		const provider = Object.keys(fields).length ? PROVIDER : undefined;
 		expect(() =>
 			remoteEmbeddingsFromForm(
 				form({
 					embeddings_source: "provider",
-					remote_embeddings_model: "text-embed-3",
+					remote_embeddings_model: "acme_:text-embed-3",
 					...fields,
 				}),
-				provider,
+				Object.keys(fields).length ? ADDED : [],
 			),
 		).toThrow(message);
 	});

@@ -1,7 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 import getEnvs from "./getEnvs";
 import logMessage from "./logMessage";
-import { credentialMode, providerFromForm } from "./providers";
+import { credentialMode, providersFromForm } from "./providers";
 import { userKeysEnabled } from "./userKeys";
 import writeProviders, {
 	type ProviderConfig,
@@ -36,10 +36,9 @@ export default async function* (options: FormData) {
 			);
 			return mode == "shared" ? rest : { ...rest, credential_mode: mode };
 		});
-	const added = providerFromForm(
+	const added = providersFromForm(
 		options,
 		kept.map((provider) => provider.id),
-		false,
 		userKeys,
 	);
 	const newKeys = Object.fromEntries(
@@ -60,11 +59,11 @@ export default async function* (options: FormData) {
 		newKeys[provider.id] = key;
 		yield logMessage(`replacing the API key for ${provider.name}...`);
 	}
-	if (added) {
-		yield logMessage(`adding ${added.provider.name}...`);
-		if (added.key) newKeys[added.provider.id] = added.key;
+	for (const { provider, key } of added) {
+		yield logMessage(`adding ${provider.name}...`);
+		if (key) newKeys[provider.id] = key;
 	}
-	const providers = added ? [...kept, added.provider] : kept;
+	const providers = [...kept, ...added.map((a) => a.provider)];
 	// a default whose provider is gone would only be skipped by the API, so it's dropped here
 	const { default_chat_model, ...rest } = config;
 	const defaultKept =

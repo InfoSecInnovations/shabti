@@ -21,7 +21,7 @@ import writeProviders, {
 	writeSecretsKey,
 } from "./writeProviders";
 import {
-	providerFromForm,
+	providersFromForm,
 	remoteEmbeddingsFromForm,
 	remoteModels,
 	resolveDefaultModel,
@@ -125,20 +125,16 @@ export default async function* (
 	// no chat model is a valid choice, it leaves Shabti only able to search
 	const chatModels = options.getAll("language_model").map((v) => v.toString());
 	// before anything is torn down, so a provider that can't be added leaves the existing install alone
-	const added = providerFromForm(
-		options,
-		[],
-		options.get("embeddings_source")?.toString() == "provider",
-		securityLevel == "enabled",
-	);
-	const remoteEmbeddings = remoteEmbeddingsFromForm(options, added?.provider);
+	const added = providersFromForm(options, [], securityLevel == "enabled");
+	const providers = added.map((a) => a.provider);
+	const remoteEmbeddings = remoteEmbeddingsFromForm(options, added);
 	const embeddingsModel = remoteEmbeddings
 		? undefined
 		: options.get("embeddings_model")?.toString() || defaults.embeddingsModel;
 	const { defaultModel, defaultChatModel } = resolveDefaultModel(
 		options.get("default_model")?.toString(),
 		chatModels,
-		added ? remoteModels({ providers: [added.provider] }) : [],
+		remoteModels({ providers }),
 	);
 	const selection: ModelSelection = {
 		chatModels,
@@ -213,7 +209,7 @@ export default async function* (
 	if (repo && tokenizer) await writeTokenizer(repo, tokenizer);
 	await writeProviders(
 		{
-			providers: added ? [added.provider] : [],
+			providers,
 			...(defaultChatModel ? { default_chat_model: defaultChatModel } : {}),
 			...(remoteEmbeddings
 				? {
@@ -226,7 +222,11 @@ export default async function* (
 					}
 				: {}),
 		},
-		added?.key ? { [added.provider.id]: added.key } : {},
+		Object.fromEntries(
+			added.flatMap(({ provider, key }): [string, string][] =>
+				key ? [[provider.id, key]] : [],
+			),
+		),
 	);
 	await writeInstanceSalt();
 	// users can only add keys of their own with security fully enabled

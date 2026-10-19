@@ -90,28 +90,34 @@ const wireMultiSelect = (selectId: string) => {
 	new TomSelect(el, { plugins: ["remove_button"] });
 };
 
-// the models a provider fieldset offers, qualified with the id its name will give it
-const fieldsetModels = (providerPrefix: string) => {
-	const name = document.getElementById(
-		`${providerPrefix}provider_name`,
-	) as HTMLInputElement | null;
-	const select = document.getElementById(
-		`${providerPrefix}provider_model`,
-	) as HTMLSelectElement | null;
-	const id = providerId(name?.value ?? "");
-	if (!select || !id) return [];
-	return [...select.selectedOptions].map((option) => qualify(id, option.value));
-};
+// the models the provider fieldsets of a form offer, qualified with the ids their names will give
+// them. the template more fieldsets are copied from isn't searched, its contents aren't in the DOM
+const fieldsetModels = (form: HTMLFormElement) =>
+	[
+		...form.querySelectorAll<HTMLInputElement>('input[name="provider_prefix"]'),
+	].flatMap(({ value: prefix }) => {
+		const name = document.getElementById(
+			`${prefix}provider_name`,
+		) as HTMLInputElement | null;
+		const select = document.getElementById(
+			`${prefix}provider_model`,
+		) as HTMLSelectElement | null;
+		const id = providerId(name?.value ?? "");
+		if (!select || !id) return [];
+		return [...select.selectedOptions].map((option) =>
+			qualify(id, option.value),
+		);
+	});
 
 // the default chat model can only be chosen when more than one model is on offer, so the
 // selector is rendered on the fly. Both the install form and the model management form have
 // one, hence the ids being parameters, they have to be unique across the page. The models of
 // providers that are already configured are on the container, and on the install form the ones
-// picked for the provider being added are offered too.
+// picked for the providers being added are offered too.
 const wireDefaultModelSelector = (
 	selectId: string,
 	containerId: string,
-	providerPrefix?: string,
+	withAddedProviders = false,
 ) => {
 	const chatModelSelector = document.getElementById(
 		selectId,
@@ -131,7 +137,9 @@ const wireDefaultModelSelector = (
 		const choices = [
 			...selected,
 			...configured,
-			...(providerPrefix != undefined ? fieldsetModels(providerPrefix) : []),
+			...(withAddedProviders && chatModelSelector.form
+				? fieldsetModels(chatModelSelector.form)
+				: []),
 		];
 		// a provider's models answer prompts as well as local ones do
 		noChatModelNote?.classList.toggle("hidden", choices.length > 0);
@@ -173,6 +181,20 @@ const wireDefaultModelSelector = (
 	});
 };
 
+// what a provider fieldset announces each time its models change, for the install form's
+// embeddings model
+type ProviderModels = {
+	prefix: string;
+	name: string;
+	models: string[];
+	embeddingsModels: string[];
+};
+
+const announceModels = (el: Element, detail: ProviderModels) =>
+	el.dispatchEvent(
+		new CustomEvent("provider-models", { detail, bubbles: true }),
+	);
+
 // asks the configurator to list the provider's models, which it does from the server so the
 // browser doesn't need the provider to allow it, then offers them to choose from
 const wireProviderTest = (prefix: string) => {
@@ -211,7 +233,7 @@ const wireProviderTest = (prefix: string) => {
 								{
 									attrs: {
 										id: selectId,
-										name: "provider_model",
+										name: selectId,
 										multiple: true,
 									},
 								},
@@ -231,12 +253,12 @@ const wireProviderTest = (prefix: string) => {
 	};
 	// for the install form's embeddings model, which can be any of them
 	const announce = (models: string[], embeddingsModels: string[]) =>
-		modelsEl.dispatchEvent(
-			new CustomEvent("provider-models", {
-				detail: { models, embeddingsModels },
-				bubbles: true,
-			}),
-		);
+		announceModels(modelsEl, {
+			prefix,
+			name: field("provider_name").value.trim(),
+			models,
+			embeddingsModels,
+		});
 	button.onclick = async () => {
 		button.disabled = true;
 		showStatus("", "Testing the connection...");
@@ -280,41 +302,113 @@ const wireProviderTest = (prefix: string) => {
 	};
 };
 
-// the install form's provider can embed as well. its embeddings models come first, but any of its
-// models can be chosen, as not every provider says which of them embed. searchable, as a provider
-// can list hundreds
+// the install form's providers can embed as well. each one's embeddings models come first, but any
+// of its models can be chosen, as not every provider says which of them embed. searchable, as a
+// provider can list hundreds. a model is named after the fieldset it came from as `prefix:model`,
+// for the server to tell which provider it belongs to
 const wireRemoteEmbeddings = () => {
 	const select = document.getElementById(
 		"remote_embeddings_model",
 	) as HTMLSelectElement | null;
-	const modelsEl = document.getElementById("provider_models");
-	if (!select || !modelsEl) return; // the install form isn't on the page
+	if (!select || !formEl) return; // the install form isn't on the page
 	const tomSelect = new TomSelect(select, {
 		maxItems: 1,
 		lockOptgroupOrder: true,
 		placeholder: "Search the provider's models",
 	});
-	modelsEl.addEventListener("provider-models", (e) => {
-		const { models, embeddingsModels } = (
-			e as CustomEvent<{ models: string[]; embeddingsModels: string[] }>
+	formEl.addEventListener("provider-models", (e) => {
+		const { prefix, name, models, embeddingsModels } = (
+			e as CustomEvent<ProviderModels>
 		).detail;
 		const previous = tomSelect.getValue() as string;
-		tomSelect.clear(true);
-		tomSelect.clearOptions();
-		tomSelect.clearOptionGroups();
-		tomSelect.addOptionGroup("embeddings", { label: "Embeddings models" });
-		tomSelect.addOptionGroup("other", { label: "Other models" });
+		// the provider's models from before, which the ones it lists now replace
+		for (const value of Object.keys(tomSelect.options))
+			if (value.startsWith(`${prefix}:`)) tomSelect.removeOption(value, true);
+		const embeddingsGroup = `${prefix}embeddings`;
+		const otherGroup = `${prefix}other`;
+		tomSelect.removeOptionGroup(embeddingsGroup);
+		tomSelect.removeOptionGroup(otherGroup);
+		const label = (text: string) => (name ? `${name}: ${text}` : text);
+		tomSelect.addOptionGroup(embeddingsGroup, {
+			label: label("Embeddings models"),
+		});
+		tomSelect.addOptionGroup(otherGroup, { label: label("Other models") });
 		for (const id of embeddingsModels)
-			tomSelect.addOption({ value: id, text: id, optgroup: "embeddings" });
+			tomSelect.addOption({
+				value: `${prefix}:${id}`,
+				text: id,
+				optgroup: embeddingsGroup,
+			});
 		for (const id of models)
-			tomSelect.addOption({ value: id, text: id, optgroup: "other" });
-		const chosen = [...embeddingsModels, ...models].includes(previous)
+			tomSelect.addOption({
+				value: `${prefix}:${id}`,
+				text: id,
+				optgroup: otherGroup,
+			});
+		const chosen = tomSelect.options[previous]
 			? previous
 			: embeddingsModels.length == 1
-				? embeddingsModels[0]
+				? `${prefix}:${embeddingsModels[0]}`
 				: undefined;
 		if (chosen) tomSelect.setValue(chosen, true);
+		else tomSelect.clear(true);
 	});
+};
+
+// a provider fieldset is titled with the name typed into it
+const wireProviderLegend = (prefix: string) => {
+	const name = document.getElementById(
+		`${prefix}provider_name`,
+	) as HTMLInputElement | null;
+	const legend = document.getElementById(`${prefix}provider_legend`);
+	if (!name || !legend) return;
+	const update = () =>
+		(legend.textContent = name.value.trim() || "New Model Provider");
+	update(); // the browser may have restored a name when the page was reloaded
+	name.addEventListener("input", update);
+};
+
+// a form starts with one provider fieldset, and the template rendered alongside it adds more.
+// each is numbered after the ones before it, so its fields get a prefix of their own
+const wireProviderList = (formPrefix: string) => {
+	const container = document.getElementById(`${formPrefix}providers`);
+	const template = document.getElementById(
+		`${formPrefix}provider_template`,
+	) as HTMLTemplateElement | null;
+	const addButton = document.getElementById(`${formPrefix}provider_add`);
+	if (!container || !template || !addButton) return; // the form isn't on the page
+	wireProviderTest(`${formPrefix}0_`);
+	wireProviderLegend(`${formPrefix}0_`);
+	let count = container.children.length;
+	addButton.onclick = () => {
+		const prefix = `${formPrefix}${count}_`;
+		container.insertAdjacentHTML(
+			"beforeend",
+			template.innerHTML.replaceAll("{n}", String(count)),
+		);
+		count++;
+		const fieldset = container.lastElementChild as HTMLElement;
+		wireProviderTest(prefix);
+		wireProviderLegend(prefix);
+		const remove =
+			fieldset.querySelector<HTMLButtonElement>(".provider_remove");
+		if (remove)
+			remove.onclick = () => {
+				const form = fieldset.closest("form");
+				// so the embeddings model selector drops the provider's models
+				announceModels(fieldset, {
+					prefix,
+					name: "",
+					models: [],
+					embeddingsModels: [],
+				});
+				fieldset.remove();
+				// so the default chat model selector drops them too
+				form?.dispatchEvent(new Event("change"));
+			};
+		// so the install form hides the key mode when users' own keys aren't available
+		fieldset.dispatchEvent(new Event("change", { bubbles: true }));
+	};
 };
 
 // uninstalling and installing over an existing configuration both destroy the user's data and
@@ -428,13 +522,13 @@ const setFormVisibility = () => {
 		?.classList.toggle("hidden", formData.get("embeddings_tokenizer") != "hf");
 	// users' own keys need security to be fully enabled, so it's back to the shared key otherwise
 	const userKeys = formData.get("security_level") == "enabled";
-	document
-		.getElementById("provider_credential_mode_field")
-		?.classList.toggle("hidden", !userKeys);
-	const credentialMode = document.getElementById(
-		"provider_credential_mode",
-	) as HTMLSelectElement | null;
-	if (credentialMode && !userKeys) credentialMode.value = "shared";
+	formEl
+		.querySelectorAll<HTMLElement>(".credential_mode_field")
+		.forEach((field) => {
+			field.classList.toggle("hidden", !userKeys);
+			const credentialMode = field.querySelector("select");
+			if (credentialMode && !userKeys) credentialMode.value = "shared";
+		});
 	const keycloakConfig = document.getElementById("keycloak_config");
 	if (formData.get("security_level") != "none") {
 		keycloakConfig?.classList.remove("hidden");
@@ -452,13 +546,13 @@ if (formEl) {
 
 wireMultiSelect("language_model");
 wireMultiSelect("manage_language_model");
-wireDefaultModelSelector("language_model", "default_model_selector", "");
+wireDefaultModelSelector("language_model", "default_model_selector", true);
 wireDefaultModelSelector(
 	"manage_language_model",
 	"manage_default_model_selector",
 );
-wireProviderTest("");
-wireProviderTest("manage_");
+wireProviderList("install_");
+wireProviderList("manage_");
 wireRemoteEmbeddings();
 wireLoggingVisibility("activity_logging");
 wireLoggingVisibility("manage_activity_logging");
