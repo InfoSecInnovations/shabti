@@ -208,9 +208,19 @@ const wireProviderTest = (prefix: string) => {
 		document.getElementById(`${prefix}${name}`) as
 			| HTMLInputElement
 			| HTMLTextAreaElement;
+	// set on a fieldset prefilled from an installed provider
+	const existing = document.getElementById(
+		`${prefix}provider_existing`,
+	) as HTMLInputElement | null;
 	let status: VNode = toVNode(statusEl);
 	let models: VNode = toVNode(modelsEl);
-	let tomSelect: TomSelect | undefined;
+	// a fieldset prefilled from an installed provider starts with its models
+	const prefilled = document.getElementById(
+		`${prefix}provider_model`,
+	) as HTMLSelectElement | null;
+	let tomSelect: TomSelect | undefined = prefilled
+		? new TomSelect(prefilled, { plugins: ["remove_button"] })
+		: undefined;
 	const showStatus = (className: string, contents: VNodeChildren) => {
 		status = patch(
 			status,
@@ -270,6 +280,8 @@ const wireProviderTest = (prefix: string) => {
 					base_url: field("provider_base_url").value,
 					key: field("provider_key").value,
 					headers: field("provider_headers").value,
+					// for the configurator to test an installed provider with the key it has
+					existing: existing?.value,
 				}),
 			});
 			const result = await response.json();
@@ -368,8 +380,29 @@ const wireProviderLegend = (prefix: string) => {
 	name.addEventListener("input", update);
 };
 
-// a form starts with one provider fieldset, and the template rendered alongside it adds more.
-// each is numbered after the ones before it, so its fields get a prefix of their own
+const wireProviderFieldset = (fieldset: HTMLElement, prefix: string) => {
+	wireProviderTest(prefix);
+	wireProviderLegend(prefix);
+	const remove = fieldset.querySelector<HTMLButtonElement>(".provider_remove");
+	if (remove)
+		remove.onclick = () => {
+			const form = fieldset.closest("form");
+			// so the embeddings model selector drops the provider's models
+			announceModels(fieldset, {
+				prefix,
+				name: "",
+				models: [],
+				embeddingsModels: [],
+			});
+			fieldset.remove();
+			// so the default chat model selector drops them too
+			form?.dispatchEvent(new Event("change"));
+		};
+};
+
+// a form starts with one provider fieldset, or one for each installed provider on the install
+// form, and the template rendered alongside them adds more. each is numbered after the ones before
+// it, so its fields get a prefix of their own
 const wireProviderList = (formPrefix: string) => {
 	const container = document.getElementById(`${formPrefix}providers`);
 	const template = document.getElementById(
@@ -377,8 +410,12 @@ const wireProviderList = (formPrefix: string) => {
 	) as HTMLTemplateElement | null;
 	const addButton = document.getElementById(`${formPrefix}provider_add`);
 	if (!container || !template || !addButton) return; // the form isn't on the page
-	wireProviderTest(`${formPrefix}0_`);
-	wireProviderLegend(`${formPrefix}0_`);
+	for (const fieldset of container.children)
+		wireProviderFieldset(
+			fieldset as HTMLElement,
+			fieldset.querySelector<HTMLInputElement>('input[name="provider_prefix"]')!
+				.value,
+		);
 	let count = container.children.length;
 	addButton.onclick = () => {
 		const prefix = `${formPrefix}${count}_`;
@@ -388,24 +425,7 @@ const wireProviderList = (formPrefix: string) => {
 		);
 		count++;
 		const fieldset = container.lastElementChild as HTMLElement;
-		wireProviderTest(prefix);
-		wireProviderLegend(prefix);
-		const remove =
-			fieldset.querySelector<HTMLButtonElement>(".provider_remove");
-		if (remove)
-			remove.onclick = () => {
-				const form = fieldset.closest("form");
-				// so the embeddings model selector drops the provider's models
-				announceModels(fieldset, {
-					prefix,
-					name: "",
-					models: [],
-					embeddingsModels: [],
-				});
-				fieldset.remove();
-				// so the default chat model selector drops them too
-				form?.dispatchEvent(new Event("change"));
-			};
+		wireProviderFieldset(fieldset, prefix);
 		// so the install form hides the key mode when users' own keys aren't available
 		fieldset.dispatchEvent(new Event("change", { bubbles: true }));
 	};

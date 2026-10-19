@@ -52,17 +52,21 @@ export const resolveModelSelection = async () => {
 // does on `${containerId}_no_chat_model` for the note shown when nothing is selected.
 // remoteModels are the configured providers' models, qualified as the API names them, which can be
 // the default too. The client reads them back off the container to rebuild the selector.
+// addedModels are those of the providers the form's own fieldsets start with, which the client
+// reads off the fieldsets instead, so they go once a fieldset is removed
 export const ChatModelSelector = (props: {
 	selectId: string;
 	containerId: string;
 	chatModels: string[];
 	selectedChatModels: string[];
 	remoteModels?: string[];
+	addedModels?: string[];
 	defaultModel?: string;
 }) => {
 	const defaultChoices = [
 		...props.selectedChatModels,
 		...(props.remoteModels ?? []),
+		...(props.addedModels ?? []),
 	];
 	return (
 		<>

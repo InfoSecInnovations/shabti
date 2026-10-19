@@ -9,8 +9,10 @@ import {
 	remoteEmbeddingsFromForm,
 	remoteModels,
 	resolveDefaultModel,
+	storedProvider,
 	testProvider,
 } from "../server/providers";
+import * as writeProviders from "../server/writeProviders";
 import { json, mockFetch } from "./mocks";
 
 afterEach(() => {
@@ -30,6 +32,26 @@ const PROVIDER_FORM = {
 	provider_key: "sk-1",
 	provider_headers: "X-Title: Shabti",
 	provider_model: ["openai/gpt-4o", "meta/llama"],
+};
+
+// an installation's providers, as readProviders reads them
+const STORED: writeProviders.ProvidersConfig = {
+	providers: [
+		{
+			id: "open-router",
+			name: "Open Router",
+			base_url: "https://openrouter.ai/api/v1",
+			user_id_field: "user",
+			models: {
+				allow: ["openai/gpt-4o"],
+				overrides: { "openai/gpt-4o": { context_length: 128000 } },
+			},
+		},
+	],
+};
+const STORED_PROVIDERS = {
+	config: STORED,
+	keys: { "open-router": "sk-stored" },
 };
 
 describe("providerId", () => {
@@ -245,6 +267,32 @@ describe("the test-provider route", () => {
 		});
 	});
 
+	const testInstalled = (baseUrl: string) => {
+		spyOn(writeProviders, "readProviders").mockResolvedValue(STORED_PROVIDERS);
+		const fetchSpy = mockFetch(() => json({ data: [] }));
+		return providerRoutes
+			.request("/test-provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					base_url: baseUrl,
+					key: "",
+					existing: "open-router",
+				}),
+			})
+			.then(() => fetchSpy.mock.calls[0]![1]!.headers);
+	};
+
+	test("tests an installed provider with the key it has", async () => {
+		expect(await testInstalled("https://openrouter.ai/api/v1/")).toEqual({
+			Authorization: "Bearer sk-stored",
+		});
+	});
+
+	test("sends the installed provider's key nowhere else", async () => {
+		expect(await testInstalled("https://elsewhere.test/v1")).toEqual({});
+	});
+
 	test("only takes JSON, so another site can't post to it without a preflight", async () => {
 		const fetchSpy = mockFetch(() => json({ data: [] }));
 		const response = await providerRoutes.request("/test-provider", {
@@ -388,6 +436,73 @@ describe("providerFromForm", () => {
 		expect(added?.provider.id).toBe("acme");
 		expect(added?.provider.models).toEqual({ allow: ["chat"] });
 	});
+
+	const reinstalled = (fields: Record<string, string | string[]>) =>
+		providerFromForm(
+			form({
+				...PROVIDER_FORM,
+				provider_key: "",
+				provider_existing: "open-router",
+				...fields,
+			}),
+			[],
+			false,
+			false,
+			"",
+			STORED_PROVIDERS,
+		);
+
+	test("keeps what the installed provider it was prefilled from had", () => {
+		const added = reinstalled({});
+		expect(added?.key).toBe("sk-stored");
+		expect(added?.provider.user_id_field).toBe("user");
+		expect(added?.provider.models).toEqual({
+			allow: ["openai/gpt-4o", "meta/llama"],
+			overrides: { "openai/gpt-4o": { context_length: 128000 } },
+		});
+	});
+
+	test("takes a key typed in over the installed one", () => {
+		expect(reinstalled({ provider_key: "sk-new" })?.key).toBe("sk-new");
+	});
+
+	test("keeps nothing of the installed provider at another URL", () => {
+		const added = reinstalled({
+			provider_base_url: "https://elsewhere.test/v1",
+		});
+		expect(added?.key).toBeUndefined();
+		expect(added?.provider.user_id_field).toBeUndefined();
+		expect(added?.provider.models).toEqual({
+			allow: ["openai/gpt-4o", "meta/llama"],
+		});
+	});
+});
+
+describe("storedProvider", () => {
+	test("is the installed provider and its key at the URL it had", () => {
+		expect(
+			storedProvider(
+				STORED_PROVIDERS,
+				"open-router",
+				"https://openrouter.ai/api/v1/models",
+			),
+		).toEqual({ provider: STORED.providers[0]!, key: "sk-stored" });
+	});
+
+	test.each([
+		["open-router", "https://elsewhere.test/v1"],
+		["open-router", "not a url"],
+		["acme", "https://openrouter.ai/api/v1"],
+		["", "https://openrouter.ai/api/v1"],
+	])("is nothing for %p at %p", (id, baseUrl) => {
+		expect(storedProvider(STORED_PROVIDERS, id, baseUrl)).toBeUndefined();
+	});
+
+	test("is nothing without an installation", () => {
+		expect(
+			storedProvider(undefined, "open-router", "https://openrouter.ai/api/v1"),
+		).toBeUndefined();
+	});
 });
 
 describe("providersFromForm", () => {
@@ -429,6 +544,30 @@ describe("providersFromForm", () => {
 		expect(added.map((a) => [a.prefix, a.provider.id, a.key])).toEqual([
 			["a_", "open-router", "sk-1"],
 			["c_", "acme", undefined],
+		]);
+	});
+
+	test("keeps the keys of the installed providers they were prefilled from", () => {
+		const added = providersFromForm(
+			forms(
+				fieldset("a_", {
+					...PROVIDER_FORM,
+					provider_key: "",
+					provider_existing: "open-router",
+				}),
+				fieldset("b_", {
+					provider_name: "Acme",
+					provider_base_url: "https://api.acme.test/v1",
+					provider_model: "chat",
+				}),
+			),
+			[],
+			false,
+			STORED_PROVIDERS,
+		);
+		expect(added.map((a) => [a.provider.id, a.key])).toEqual([
+			["open-router", "sk-stored"],
+			["acme", undefined],
 		]);
 	});
 

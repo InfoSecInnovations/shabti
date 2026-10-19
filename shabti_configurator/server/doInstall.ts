@@ -17,6 +17,7 @@ import getDefaultModelSelection, {
 } from "../getDefaultModelSelection";
 import writeModelsIni from "./writeModelsIni";
 import writeProviders, {
+	readProviders,
 	writeInstanceSalt,
 	writeSecretsKey,
 } from "./writeProviders";
@@ -124,8 +125,14 @@ export default async function* (
 	const defaults = await getDefaultModelSelection();
 	// no chat model is a valid choice, it leaves Shabti only able to search
 	const chatModels = options.getAll("language_model").map((v) => v.toString());
-	// before anything is torn down, so a provider that can't be added leaves the existing install alone
-	const added = providersFromForm(options, [], securityLevel == "enabled");
+	// before anything is torn down, so a provider that can't be added leaves the existing install
+	// alone, and the installed providers' keys can be kept as the uninstall removes them
+	const added = providersFromForm(
+		options,
+		[],
+		securityLevel == "enabled",
+		await readProviders(),
+	);
 	const providers = added.map((a) => a.provider);
 	const remoteEmbeddings = remoteEmbeddingsFromForm(options, added);
 	const embeddingsModel = remoteEmbeddings

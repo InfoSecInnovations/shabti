@@ -194,10 +194,37 @@ export const credentialMode = (
 	return mode;
 };
 
+/** the providers an installation has, and their keys, as readProviders reads them */
+export type StoredProviders = {
+	config: ProvidersConfig;
+	keys: Record<string, string>;
+};
+
+/**
+ * The installed provider a fieldset was prefilled from, and its key, so a reinstall can keep a key
+ * the form never shows. Only while the base URL is the one it had, so the key goes nowhere else.
+ */
+export const storedProvider = (
+	stored: StoredProviders | undefined,
+	existingId: string,
+	baseUrl: string,
+) => {
+	const provider = stored?.config.providers.find((p) => p.id == existingId);
+	if (!stored || !provider) return undefined;
+	try {
+		if (normaliseBaseUrl(baseUrl) != provider.base_url) return undefined;
+	} catch {
+		return undefined;
+	}
+	return { provider, key: stored.keys[provider.id] };
+};
+
 /**
  * The provider a form adds, from the fields ProviderFieldset renders with the given prefix, or
  * undefined when they were left empty. Checked before an install or a change touches anything, so
  * a mistake leaves things as they were. One added only to embed with offers none of its chat models.
+ * One prefilled from an installed provider keeps its key when none is typed, and what the form
+ * can't change about it.
  */
 export const providerFromForm = (
 	form: FormData,
@@ -205,6 +232,7 @@ export const providerFromForm = (
 	embedsOnly = false,
 	userKeys = false,
 	prefix = "",
+	stored?: StoredProviders,
 ): { provider: ProviderConfig; key?: string } | undefined => {
 	const field = (name: string) =>
 		form.get(`${prefix}${name}`)?.toString().trim() ?? "";
@@ -227,13 +255,16 @@ export const providerFromForm = (
 			`Test the connection to ${name} and choose at least one of its models.`,
 		);
 	const headers = parseHeaders(field("provider_headers"));
-	const key = field("provider_key");
+	const previous = storedProvider(stored, field("provider_existing"), baseUrl);
+	const key = field("provider_key") || previous?.key;
 	const mode = credentialMode(
 		field("provider_credential_mode"),
 		name,
 		userKeys,
 		embedsOnly,
 	);
+	const userIdField = previous?.provider.user_id_field;
+	const overrides = previous?.provider.models?.overrides;
 	return {
 		provider: {
 			id,
@@ -241,8 +272,9 @@ export const providerFromForm = (
 			base_url: normaliseBaseUrl(baseUrl),
 			...(Object.keys(headers).length ? { headers } : {}),
 			...(mode != "shared" ? { credential_mode: mode } : {}),
+			...(userIdField ? { user_id_field: userIdField } : {}),
 			// an empty list rather than none, which would offer every model it lists
-			models: { allow: models },
+			models: { allow: models, ...(overrides ? { overrides } : {}) },
 		},
 		...(key ? { key } : {}),
 	};
@@ -278,6 +310,7 @@ export const providersFromForm = (
 	form: FormData,
 	existingIds: string[],
 	userKeys = false,
+	stored?: StoredProviders,
 ) => {
 	const embedsWith = embeddingsChoice(form)?.prefix;
 	const added: AddedProvider[] = [];
@@ -290,6 +323,7 @@ export const providersFromForm = (
 			prefix == embedsWith,
 			userKeys,
 			prefix,
+			stored,
 		);
 		if (provider) added.push({ prefix, ...provider });
 	}

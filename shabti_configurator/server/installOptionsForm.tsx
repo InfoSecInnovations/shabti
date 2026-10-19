@@ -10,7 +10,19 @@ import { ProviderList } from "./providerFieldset";
 import {
 	DEFAULT_REMOTE_BATCH_SIZE,
 	DEFAULT_REMOTE_CHUNK_SIZE,
+	remoteModels,
+	tokenizerRepo,
 } from "./providers";
+import { readProviders } from "./writeProviders";
+import { readShabtiModels } from "./writeModelsIni";
+import type { RemoteEmbeddingsSettings } from "../getDefaultModelSelection";
+
+const TOKENIZER_OPTIONS = {
+	estimate: "Estimate",
+	"tiktoken:cl100k_base": "tiktoken cl100k_base",
+	"tiktoken:o200k_base": "tiktoken o200k_base",
+	hf: "Hugging Face",
+};
 
 export const InstallOptionsForm = async (props: {
 	devMode: boolean;
@@ -31,6 +43,24 @@ export const InstallOptionsForm = async (props: {
 	// a chat model is optional, without one Shabti can still search
 	if ((!versions.length && !props.devMode) || !embeddingsModels.length)
 		return <p class="error">You need to be online to install Shabti.</p>;
+	// the installed providers fill the form's provider fieldsets in order, so a reinstall keeps them
+	const { config, keys } = await readProviders();
+	const embeddingsIndex = config.providers.findIndex((provider) =>
+		config.embeddings?.model.startsWith(`${provider.id}/`),
+	);
+	const embeddingsProvider = config.providers[embeddingsIndex];
+	const remoteEmbeddings =
+		config.embeddings && embeddingsProvider
+			? {
+					// named after the fieldset it's chosen from, as the client names it
+					value: `install_${embeddingsIndex}_:${config.embeddings.model.slice(embeddingsProvider.id.length + 1)}`,
+					dimensions: config.embeddings.dimensions,
+					settings: ((await readShabtiModels())[config.embeddings.model] ??
+						{}) as Partial<RemoteEmbeddingsSettings>,
+				}
+			: undefined;
+	const tokenizer = remoteEmbeddings?.settings.tokenizer || "estimate";
+	const repo = tokenizerRepo(tokenizer);
 	return (
 		<form action="/install" method="post" id="install_form">
 			<ConnectivityNotice connectivity={connectivity}></ConnectivityNotice>
@@ -64,18 +94,24 @@ export const InstallOptionsForm = async (props: {
 					containerId="default_model_selector"
 					chatModels={chatModels}
 					selectedChatModels={selectedChatModels}
-					defaultModel={selection.defaultModel}
+					addedModels={remoteModels(config)}
+					defaultModel={config.default_chat_model ?? selection.defaultModel}
 				></ChatModelSelector>
 				<p>
 					<label for="embeddings_source">Embeddings Source</label>
 					<select name="embeddings_source" id="embeddings_source">
-						<option value="local" selected>
+						<option value="local" selected={!remoteEmbeddings}>
 							Local
 						</option>
-						<option value="provider">Model Provider</option>
+						<option value="provider" selected={!!remoteEmbeddings}>
+							Model Provider
+						</option>
 					</select>
 				</p>
-				<p id="local_embeddings">
+				<p
+					id="local_embeddings"
+					class={remoteEmbeddings ? "hidden" : undefined}
+				>
 					<label for="embeddings_model">Select Embeddings Model</label>
 					<select name="embeddings_model" id="embeddings_model">
 						{embeddingsModels.map((k) => (
@@ -85,13 +121,21 @@ export const InstallOptionsForm = async (props: {
 						))}
 					</select>
 				</p>
-				<div id="remote_embeddings" class="hidden">
+				<div
+					id="remote_embeddings"
+					class={remoteEmbeddings ? undefined : "hidden"}
+				>
 					<p>
 						<label for="remote_embeddings_model">Embeddings Model</label>
-						<select
-							name="remote_embeddings_model"
-							id="remote_embeddings_model"
-						></select>
+						<select name="remote_embeddings_model" id="remote_embeddings_model">
+							{remoteEmbeddings ? (
+								<option value={remoteEmbeddings.value} selected>
+									{remoteEmbeddings.value.slice(
+										remoteEmbeddings.value.indexOf(":") + 1,
+									)}
+								</option>
+							) : undefined}
+						</select>
 					</p>
 					<p>
 						<small>
@@ -106,6 +150,11 @@ export const InstallOptionsForm = async (props: {
 							id="embeddings_dimensions"
 							name="embeddings_dimensions"
 							placeholder="the model's own"
+							value={
+								remoteEmbeddings?.dimensions
+									? String(remoteEmbeddings.dimensions)
+									: undefined
+							}
 						></input>
 					</p>
 					<p>
@@ -115,21 +164,29 @@ export const InstallOptionsForm = async (props: {
 							min="1"
 							id="embeddings_chunk_size"
 							name="embeddings_chunk_size"
-							value={String(DEFAULT_REMOTE_CHUNK_SIZE)}
+							value={String(
+								remoteEmbeddings?.settings.chunk_size ??
+									DEFAULT_REMOTE_CHUNK_SIZE,
+							)}
 						></input>
 					</p>
 					<p>
 						<label for="embeddings_tokenizer">Tokenizer</label>
 						<select name="embeddings_tokenizer" id="embeddings_tokenizer">
-							<option value="estimate" selected>
-								Estimate
-							</option>
-							<option value="tiktoken:cl100k_base">tiktoken cl100k_base</option>
-							<option value="tiktoken:o200k_base">tiktoken o200k_base</option>
-							<option value="hf">Hugging Face</option>
+							{Object.entries(TOKENIZER_OPTIONS).map(([value, label]) => (
+								<option
+									value={value}
+									selected={value == (repo ? "hf" : tokenizer)}
+								>
+									{label}
+								</option>
+							))}
 						</select>
 					</p>
-					<p id="embeddings_tokenizer_repo_container" class="hidden">
+					<p
+						id="embeddings_tokenizer_repo_container"
+						class={repo ? undefined : "hidden"}
+					>
 						<label for="embeddings_tokenizer_repo">
 							Hugging Face Repository
 						</label>
@@ -138,6 +195,7 @@ export const InstallOptionsForm = async (props: {
 							id="embeddings_tokenizer_repo"
 							name="embeddings_tokenizer_repo"
 							placeholder="owner/name"
+							value={repo}
 						></input>
 					</p>
 					<p>
@@ -147,7 +205,10 @@ export const InstallOptionsForm = async (props: {
 							min="1"
 							id="embeddings_batch_size"
 							name="embeddings_batch_size"
-							value={String(DEFAULT_REMOTE_BATCH_SIZE)}
+							value={String(
+								remoteEmbeddings?.settings.batch_size ??
+									DEFAULT_REMOTE_BATCH_SIZE,
+							)}
 						></input>
 					</p>
 					<p class="error">
@@ -166,7 +227,14 @@ export const InstallOptionsForm = async (props: {
 			</fieldset>
 			<fieldset>
 				<legend>Model Providers</legend>
-				<ProviderList formPrefix="install_" credentialModes></ProviderList>
+				<ProviderList
+					formPrefix="install_"
+					credentialModes
+					providers={config.providers.map((provider) => ({
+						provider,
+						hasKey: !!keys[provider.id],
+					}))}
+				></ProviderList>
 			</fieldset>
 			<LoggingFieldset></LoggingFieldset>
 			<HostsAndPortsFieldset></HostsAndPortsFieldset>
