@@ -323,6 +323,10 @@ export class ProviderModelInfo {
 	contextLength?: number;
 	// only llama.cpp's models have one, a remote model is always ready
 	status?: string;
+	// what a prompt can ask it to think at, in the provider's own words, or false and true for a
+	// model that can only be switched
+	reasoning?: (boolean | string)[];
+	reasoningDefault?: boolean | string;
 	constructor(
 		id: string,
 		providerId: string,
@@ -331,6 +335,8 @@ export class ProviderModelInfo {
 		category: string,
 		contextLength?: number,
 		status?: string,
+		reasoning?: (boolean | string)[],
+		reasoningDefault?: boolean | string,
 	) {
 		this.id = id;
 		this.providerId = providerId;
@@ -339,6 +345,8 @@ export class ProviderModelInfo {
 		this.category = category;
 		this.contextLength = contextLength;
 		this.status = status;
+		this.reasoning = reasoning;
+		this.reasoningDefault = reasoningDefault;
 	}
 }
 

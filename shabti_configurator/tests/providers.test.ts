@@ -42,6 +42,7 @@ const STORED: writeProviders.ProvidersConfig = {
 			name: "Open Router",
 			base_url: "https://openrouter.ai/api/v1",
 			user_id_field: "user",
+			reasoning_format: "openrouter",
 			models: {
 				allow: ["openai/gpt-4o"],
 				overrides: { "openai/gpt-4o": { context_length: 128000 } },
@@ -456,6 +457,7 @@ describe("providerFromForm", () => {
 		const added = reinstalled({});
 		expect(added?.key).toBe("sk-stored");
 		expect(added?.provider.user_id_field).toBe("user");
+		expect(added?.provider.reasoning_format).toBe("openrouter");
 		expect(added?.provider.models).toEqual({
 			allow: ["openai/gpt-4o", "meta/llama"],
 			overrides: { "openai/gpt-4o": { context_length: 128000 } },
@@ -472,6 +474,7 @@ describe("providerFromForm", () => {
 		});
 		expect(added?.key).toBeUndefined();
 		expect(added?.provider.user_id_field).toBeUndefined();
+		expect(added?.provider.reasoning_format).toBeUndefined();
 		expect(added?.provider.models).toEqual({
 			allow: ["openai/gpt-4o", "meta/llama"],
 		});

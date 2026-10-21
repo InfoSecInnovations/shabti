@@ -42,6 +42,24 @@ const asText = (raw: string, where: string) => {
 	return value;
 };
 
+// written as a JSON list, as the ini parser has no lists of its own
+const asReasoning = (raw: string, where: string) => {
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		value = undefined;
+	}
+	if (
+		!Array.isArray(value) ||
+		!value.every((x) => typeof x == "string" || typeof x == "boolean")
+	)
+		throw new HTTPException(400, {
+			message: `${where} is ${raw}, which is not a JSON list of levels and true or false: ["low", "medium", "high"]`,
+		});
+	return value;
+};
+
 // what a catalogue entry is allowed to tell Shabti about a model, and how each one is read. checked
 // for the same reason as the options below, except that a typo in one of these wouldn't even stop
 // the LLM service: the setting would just quietly not be there when the API came to read it
@@ -54,6 +72,10 @@ const SHABTI_KEYS: Record<string, (raw: string, where: string) => unknown> = {
 	// often absent for models that require a prefix anyway, so they are curated here
 	query_prefix: asText,
 	document_prefix: asText,
+	// what a chat model can be asked to think at, for one whose chat template the API misreads.
+	// false and true switch it, and anything else is passed to the template as `reasoning_effort`.
+	// an empty list offers nothing
+	reasoning: asReasoning,
 };
 
 // which llama.cpp options a catalogue entry is allowed to set, checked so that a typo is reported

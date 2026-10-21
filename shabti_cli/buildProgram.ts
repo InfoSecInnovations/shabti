@@ -15,6 +15,10 @@ import {
 import getAuthClient from "./getAuthClient";
 import getClient from "./getClient";
 
+// a model that can only be switched takes true or false rather than a level
+const reasoningOption = (value?: string) =>
+	value == "true" ? true : value == "false" ? false : value;
+
 export default async () => {
 	const program = new commander.Command();
 
@@ -246,6 +250,10 @@ export default async () => {
 			"-m, --model <model>",
 			"chat model to answer with, instead of the current one",
 		)
+		.option(
+			"-r, --reasoning <reasoning>",
+			"how much the model thinks: one of its levels, or true or false",
+		)
 		.action(async (userInput, options, command) => {
 			let sourceFound = false;
 			for await (const item of await client.prompt(
@@ -256,6 +264,7 @@ export default async () => {
 				options.enhancers,
 				options.file,
 				options.model,
+				reasoningOption(options.reasoning),
 			)) {
 				if (item.source) {
 					if (!sourceFound) {
@@ -269,6 +278,10 @@ export default async () => {
 						docText += item.source.document_metadata.filename;
 					else docText += item.source.document_metadata.source;
 					console.log(docText);
+				}
+				// on stderr, so the answer alone can still be piped on
+				if (item.thinking) {
+					process.stderr.write(item.thinking);
 				}
 				if (item.response) {
 					process.stdout.write(item.response);

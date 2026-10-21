@@ -5,8 +5,9 @@ const SOURCE = "https://models.dev/api.json";
 // the full catalogue is a few megabytes, which a slow connection needs a while for
 const TIMEOUT_MS = 30_000;
 
-// only what the API reads: a remote model's context length, when its provider's listing doesn't say
-const MODEL_KEYS = ["limit"] as const;
+// only what the API reads, when a remote provider's listing doesn't say: a model's context length,
+// and how it can be told to think
+const MODEL_KEYS = ["limit", "reasoning_options"] as const;
 
 type Catalogue = Record<
 	string,

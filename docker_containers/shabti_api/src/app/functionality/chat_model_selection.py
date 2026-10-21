@@ -77,7 +77,11 @@ async def resolve_prompt_model(
         raise ModelNotFoundError(
             model=model_id, message=f"Model {model_id} is not loaded"
         )
-    return ChatModel(provider=get_provider(model.provider_id), model_id=model.model_id)
+    return ChatModel(
+        provider=get_provider(model.provider_id),
+        model_id=model.model_id,
+        reasoning=tuple(model.reasoning or ()),
+    )
 
 
 async def require_user_key(credentials: str | None, model_id: str):

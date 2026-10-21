@@ -62,6 +62,8 @@ class ChatModel:
 
     provider: Provider
     model_id: str
+    # the values a prompt may ask it to think at, see `reasoning`
+    reasoning: tuple[bool | str, ...] = ()
 
     @property
     def id(self) -> str:

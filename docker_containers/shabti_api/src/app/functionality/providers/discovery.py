@@ -2,7 +2,8 @@
 
 llama.cpp's router tags its models, so `local` is described by the installer's catalogue. A remote
 provider only lists ids, so the rest comes from the admin's overrides, then anything the listing
-volunteers, then the bundled models.dev snapshot, and finally conservative defaults.
+volunteers, then the bundled models.dev snapshot, and finally conservative defaults. How a model can
+be told to think is found the same way, except that a local model's comes from its chat template.
 """
 
 import asyncio
@@ -11,12 +12,22 @@ import logging
 import time
 import httpx
 from shabti_types import ProviderModelInfo, ProviderUnavailableError, ShabtiError
+from ..embeddings_config import optional_settings
 from ..models import get_models, model_categories, model_status
 from .config import LOCAL, Provider, config_mtime
 from .errors import provider_error
 from .keys import shared_key, user_key
 from .models_dev import lookup
-from .registry import providers, qualify
+from .reasoning import (
+    NO_CAPABILITY,
+    Capability,
+    first_known,
+    from_listing,
+    from_models_dev,
+    from_override,
+    from_template,
+)
+from .registry import local_url, providers, qualify
 
 # a remote listing barely changes, and listing every provider on each prompt would cost each one a
 # round trip. failures are not kept, so a provider that comes back is listed on the next request.
@@ -29,10 +40,14 @@ FALLBACK_CONTEXT_LENGTH = 8192
 
 _cache: dict[str, tuple[float, list[ProviderModelInfo]]] = {}
 _cached_config: float | None = None
+# what each loaded local model's template reads. llama.cpp can only show the template of a model it
+# has loaded, and one loaded again may have been swapped for another under the same name
+_local_reasoning: dict[str, Capability] = {}
 
 
 def clear_cache():
     _cache.clear()
+    _local_reasoning.clear()
 
 
 def request_headers(provider: Provider, key: str | None) -> dict[str, str]:
@@ -87,6 +102,9 @@ def describe(provider: Provider, listed: dict) -> ProviderModelInfo:
         or (known.get("limit") or {}).get("context")
         or FALLBACK_CONTEXT_LENGTH
     )
+    reasoning, reasoning_default = from_override(override) or first_known(
+        from_listing(listed), from_models_dev(known)
+    )
     return ProviderModelInfo(
         id=qualify(provider.id, model_id),
         provider_id=provider.id,
@@ -94,6 +112,8 @@ def describe(provider: Provider, listed: dict) -> ProviderModelInfo:
         display_name=override.get("label") or model_id,
         category=category(model_id, override),
         context_length=int(context_length),
+        reasoning=reasoning,
+        reasoning_default=reasoning_default,
     )
 
 
@@ -131,20 +151,65 @@ async def remote_models(
     return models
 
 
+async def chat_template(model_id: str) -> str | None:
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            # without autoload, so asking can never load a model in place of another
+            response = await client.get(
+                local_url("/props"), params={"model": model_id, "autoload": 0}
+            )
+        return response.json().get("chat_template") if response.is_success else None
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+
+
+def catalogue_override(model_id: str) -> dict:
+    try:
+        return optional_settings(qualify(LOCAL, model_id))
+    except ShabtiError:
+        # a model listing is no place to report a broken installation, embedding does that
+        return {}
+
+
+async def local_reasoning(model: dict) -> Capability:
+    if override := from_override(catalogue_override(model["id"])):
+        return override
+    if model_status(model) != "loaded":
+        return NO_CAPABILITY
+    if model["id"] not in _local_reasoning:
+        template = await chat_template(model["id"])
+        # not kept when it couldn't be read, so it is asked for again
+        if template is None:
+            return NO_CAPABILITY
+        _local_reasoning[model["id"]] = from_template(template)
+    return _local_reasoning[model["id"]]
+
+
 async def local_models() -> list[ProviderModelInfo]:
     # not cached, as the status changes as models are loaded
-    return [
-        ProviderModelInfo(
-            id=qualify(LOCAL, x["id"]),
-            provider_id=LOCAL,
-            model_id=x["id"],
-            display_name=x["id"],
-            category=model_category,
-            status=model_status(x),
-        )
-        for x in (await get_models())["data"]
-        for model_category in sorted(model_categories(x))
-    ]
+    listed = (await get_models())["data"]
+    loaded = {x["id"] for x in listed if model_status(x) == "loaded"}
+    for model_id in [x for x in _local_reasoning if x not in loaded]:
+        del _local_reasoning[model_id]
+    models = []
+    for x in listed:
+        categories = model_categories(x)
+        # only a chat model is asked for its template, as nothing else is prompted
+        chat = await local_reasoning(x) if "chat" in categories else NO_CAPABILITY
+        models += [
+            ProviderModelInfo(
+                id=qualify(LOCAL, x["id"]),
+                provider_id=LOCAL,
+                model_id=x["id"],
+                display_name=x["id"],
+                category=model_category,
+                status=model_status(x),
+                reasoning=chat[0] if model_category == "chat" else None,
+                reasoning_default=chat[1] if model_category == "chat" else None,
+            )
+            for model_category in sorted(categories)
+        ]
+    return models
 
 
 async def list_models(

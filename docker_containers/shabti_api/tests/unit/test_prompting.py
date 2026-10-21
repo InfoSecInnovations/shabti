@@ -117,6 +117,35 @@ async def test_no_user_is_sent_without_one(chat):
     assert kwargs["kwargs"] is None
 
 
+async def test_reasoning_goes_in_the_body_beside_the_user(chat):
+    await run(
+        model=ChatModel(provider=REMOTE, model_id="vendor/chat"),
+        user="a-hash",
+        reasoning="high",
+    )
+    _, kwargs = chat[0].asked
+    assert kwargs["kwargs"] == {
+        "extra_body": {"safety_identifier": "a-hash", "reasoning_effort": "high"}
+    }
+
+
+async def test_a_local_model_is_switched_through_its_template(chat):
+    await run(reasoning=False)
+    _, kwargs = chat[0].asked
+    assert kwargs["kwargs"] == {
+        "extra_body": {
+            "chat_template_kwargs": {"enable_thinking": False, "thinking": False}
+        }
+    }
+
+
+async def test_a_model_left_to_think_by_default_is_sent_nothing(chat):
+    # true, on a provider that only takes levels, is the default it would think at anyway
+    await run(model=ChatModel(provider=REMOTE, model_id="vendor/chat"), reasoning=True)
+    _, kwargs = chat[0].asked
+    assert kwargs["kwargs"] is None
+
+
 async def test_the_instructions_are_the_system_prompt(chat):
     # persona first, as who is answering frames what is asked of them
     await run(persona_prompt="the persona", enhancer_prompts=["one", "two"])

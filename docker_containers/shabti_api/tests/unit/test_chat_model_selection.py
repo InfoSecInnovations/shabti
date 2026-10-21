@@ -120,6 +120,12 @@ async def test_the_requested_model_is_used(models, default):
     assert resolved.provider.id == "local"
 
 
+async def test_the_resolved_model_carries_what_it_can_think_at(models, default):
+    models[2] = models[2].model_copy(update={"reasoning": [False, "high"]})
+    resolved = await resolve_prompt_model(None, "remote/vendor/chat-3")
+    assert resolved.reasoning == (False, "high")
+
+
 async def test_a_remote_model_is_used_with_its_provider(models, default):
     # its id is split on the first `/` only, as the provider's own id has one too
     resolved = await resolve_prompt_model(None, "remote/vendor/chat-3")

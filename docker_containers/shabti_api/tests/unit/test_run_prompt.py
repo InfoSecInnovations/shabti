@@ -315,6 +315,12 @@ async def test_the_resolved_model_answers(context, audit, llm):
     assert asked["model"] == local("chat-2")
 
 
+async def test_the_requested_reasoning_is_asked_for(context, audit, llm):
+    asked = llm("Hello")
+    await run(reasoning="low")
+    assert asked["reasoning"] == "low"
+
+
 async def test_a_local_model_is_asked_without_a_key_or_a_user(context, audit, llm):
     asked = llm("Hello")
     await run(token="a-token")

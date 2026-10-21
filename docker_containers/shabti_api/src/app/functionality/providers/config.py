@@ -25,6 +25,16 @@ SLUG = re.compile(r"[a-z0-9-]+")
 # they've added one and otherwise the admin's. users' keys need security fully enabled, see `keys`
 CREDENTIAL_MODES = ("shared", "user", "shared_or_user")
 
+# which request fields a provider takes how a model should think in, see `reasoning`
+REASONING_FORMATS = (
+    "effort",
+    "llama_cpp",
+    "openrouter",
+    "thinking",
+    "enable_thinking",
+    "anthropic",
+)
+
 
 @dataclass(frozen=True)
 class Provider:
@@ -36,6 +46,8 @@ class Provider:
     credential_mode: str = "shared"
     # the request field the hashed requester goes in, for providers that name it differently
     user_id_field: str = "user"
+    # one of REASONING_FORMATS, or None to tell it from the host
+    reasoning_format: str | None = None
     # the models offered, by the provider's own id. None offers every model it lists, and empty
     # offers none, for a provider that only embeds
     allow: tuple[str, ...] | None = None
@@ -79,6 +91,9 @@ def parse_provider(raw) -> Provider:
     credential_mode = raw.get("credential_mode", "shared")
     if credential_mode not in CREDENTIAL_MODES:
         raise invalid(f"{provider_id} has an unknown credential_mode")
+    reasoning_format = raw.get("reasoning_format")
+    if reasoning_format is not None and reasoning_format not in REASONING_FORMATS:
+        raise invalid(f"{provider_id} has an unknown reasoning_format")
     models = raw.get("models") or {}
     return Provider(
         id=provider_id,
@@ -87,6 +102,7 @@ def parse_provider(raw) -> Provider:
         headers={str(k): str(v) for k, v in (raw.get("headers") or {}).items()},
         credential_mode=credential_mode,
         user_id_field=raw.get("user_id_field") or "user",
+        reasoning_format=reasoning_format,
         allow=None if models.get("allow") is None else tuple(models["allow"]),
         overrides=dict(models.get("overrides") or {}),
     )

@@ -276,6 +276,8 @@ export class BaseShabtiClient {
 		filePath?: string,
 		// the chat model to answer with, or else the user's selection
 		model?: string,
+		// one of the model's `reasoning` values, or left out for its default
+		reasoning?: boolean | string,
 	): Promise<ReadableStream<any>> {
 		const fileId = await (async () => {
 			if (filePath) {
@@ -298,6 +300,7 @@ export class BaseShabtiClient {
 			enhancers,
 			file_id: fileId,
 			model,
+			reasoning,
 		});
 	}
 
@@ -408,6 +411,8 @@ export class BaseShabtiClient {
 					item.category,
 					item.context_length ?? undefined,
 					item.status ?? undefined,
+					item.reasoning ?? undefined,
+					item.reasoning_default ?? undefined,
 				),
 		);
 	}

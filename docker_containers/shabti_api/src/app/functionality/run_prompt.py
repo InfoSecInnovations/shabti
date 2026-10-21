@@ -129,6 +129,7 @@ async def prompt_chunks(
             persona_prompt=persona_prompt,
             enhancer_prompts=enhancer_prompts,
             source_file_contents=source_file_contents,
+            reasoning=prompt_info.reasoning,
         ):
             if isinstance(x, ContentThinkingDelta):
                 if x.thinking:

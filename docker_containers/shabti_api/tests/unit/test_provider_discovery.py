@@ -40,7 +40,10 @@ SNAPSHOT = {
             "api": "https://api.elsewhere/v1",
             "models": {
                 "chat-a": {"limit": {"context": 32000}},
-                "chat-b": {"limit": {"context": 16000}},
+                "chat-b": {
+                    "limit": {"context": 16000},
+                    "reasoning_options": [{"type": "toggle"}],
+                },
             },
         },
         "openai": {"models": {"gpt-x": {"limit": {"context": 400000}}}},
@@ -118,6 +121,33 @@ def local_models(monkeypatch):
         }
 
     monkeypatch.setattr(discovery_module, "get_models", get_models)
+    monkeypatch.setattr(discovery_module, "catalogue_override", lambda model_id: {})
+    discovery_module.clear_cache()
+    return templates_shown(monkeypatch)
+
+
+class Templates(dict):
+    """The chat template llama.cpp shows for each model id, and the ids it was asked for."""
+
+    def __init__(self):
+        super().__init__()
+        self.asked = []
+
+
+def templates_shown(monkeypatch) -> Templates:
+    shown = Templates()
+
+    async def chat_template(model_id):
+        shown.asked.append(model_id)
+        return shown.get(model_id)
+
+    monkeypatch.setattr(discovery_module, "chat_template", chat_template)
+    return shown
+
+
+@pytest.fixture
+def templates(local_models):
+    return local_models
 
 
 async def test_a_listing_is_qualified_with_the_provider(remote):
@@ -257,6 +287,72 @@ async def test_local_models_keep_their_status_and_category(local_models):
         ("local/chat-1", "chat", "loaded"),
         ("local/embed-1", "embeddings", "unloaded"),
     ]
+
+
+async def test_reasoning_comes_from_the_listing_before_models_dev(remote):
+    remote.listing = {
+        "data": [
+            {
+                "id": "chat-b",
+                "reasoning": {
+                    "mandatory": True,
+                    "supported_efforts": ["high", "low"],
+                    "default_effort": "high",
+                },
+            }
+        ]
+    }
+    model = (await list_models(REMOTE, None))[0]
+    assert (model.reasoning, model.reasoning_default) == (["low", "high"], "high")
+
+
+async def test_reasoning_falls_back_on_models_dev(remote):
+    reasoning = {x.model_id: x.reasoning for x in await list_models(REMOTE, None)}
+    assert reasoning == {"chat-a": None, "chat-b": [False, True]}
+
+
+async def test_an_empty_reasoning_override_offers_nothing(remote):
+    provider = replace(REMOTE, overrides={"chat-b": {"reasoning": []}})
+    assert (await list_models(provider, None))[1].reasoning is None
+
+
+async def test_a_loaded_local_model_offers_what_its_template_reads(
+    local_models, templates
+):
+    templates.update({"chat-1": "{%- if enable_thinking is defined %}"})
+    models = await list_models(LOCAL, None)
+    assert [(x.id, x.reasoning) for x in models] == [
+        ("local/chat-1", [False, True]),
+        ("local/embed-1", None),
+    ]
+    # an embeddings model isn't prompted, and one that isn't loaded can't show its template
+    assert templates.asked == ["chat-1"]
+
+
+async def test_a_local_template_is_read_once_while_loaded(local_models, templates):
+    templates.update({"chat-1": "{%- if enable_thinking is defined %}"})
+    await list_models(LOCAL, None)
+    await list_models(LOCAL, None)
+    assert templates.asked == ["chat-1"]
+
+
+async def test_an_unreadable_local_template_is_asked_for_again(local_models, templates):
+    assert (await list_models(LOCAL, None))[0].reasoning is None
+    await list_models(LOCAL, None)
+    assert templates.asked == ["chat-1", "chat-1"]
+
+
+async def test_the_catalogue_beats_a_local_template(
+    monkeypatch, local_models, templates
+):
+    templates.update({"chat-1": "{%- if enable_thinking is defined %}"})
+    monkeypatch.setattr(
+        discovery_module,
+        "catalogue_override",
+        lambda model_id: {"reasoning": ["low", "high"]},
+    )
+    assert (await list_models(LOCAL, None))[0].reasoning == ["low", "high"]
+    assert templates.asked == []
 
 
 async def test_a_failing_provider_is_left_out_of_the_rest(

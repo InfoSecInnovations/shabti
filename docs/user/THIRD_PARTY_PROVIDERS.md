@@ -48,6 +48,16 @@ The configurator records providers in `docker_compose/docker_compose_dependencie
 
 Shabti looks up each remote model's context length on [models.dev](https://models.dev), in a copy the configurator downloads each time it starts. A model it can't find there is assumed to take 8k tokens, unless the provider's model list or `overrides` say otherwise.
 
+### Reasoning
+
+A model that can be told how much to think gets a "Reasoning" choice in the prompter. Its values are the provider's own, such as `low`, `high` or `none`, or Off and On for a model that can only be switched. Shabti finds them in the provider's model list where it says (OpenRouter, Anthropic), and otherwise on models.dev. A local model's are read from its chat template once it is loaded.
+
+- `overrides` can set a model's `reasoning`, as a list such as `["low", "medium", "high"]` or `[false, true]`, and `reasoning_default`. An empty list offers no choice.
+- `reasoning_format` is how the provider is told. Shabti works it out from the base URL for OpenRouter (`openrouter`), Anthropic (`anthropic`), DeepSeek, Moonshot and Z.ai (`thinking`) and Alibaba DashScope (`enable_thinking`), and uses `reasoning_effort` (`effort`) for anything else. Set it for another provider that needs one of these, or to `llama_cpp` for a llama.cpp server.
+- For a local model, set `shabti_reasoning` in its catalogue entry, e.g. `shabti_reasoning = ["low", "high"]`.
+
+Anthropic and OpenAI follow the choice but don't send back what the model thought.
+
 API keys are kept apart from this file, in `docker_compose/docker_compose_dependencies/secrets/shabti_provider_keys.json`, as `{"openrouter": "sk-..."}`. That directory is mounted into the API container alone. A provider without a key is sent none, which suits most self-hosted servers.
 
 Changes to either file are picked up without restarting Shabti.

@@ -1,3 +1,4 @@
+import json
 from shabti_types import PromptInfo, ModelNotFoundError
 from fastapi import HTTPException
 from ..functionality.load_prompter_config import load_prompter_config
@@ -22,6 +23,14 @@ class PromptInfoValidator:
                 model = await resolve_prompt_model(credentials, prompt_info.model)
             except ModelNotFoundError as e:
                 raise HTTPException(status_code=400, detail=e.message)
+            reasoning = prompt_info.reasoning
+            if reasoning is not None and reasoning not in model.reasoning:
+                allowed = ", ".join(json.dumps(x) for x in model.reasoning)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Model {model.id} doesn't take reasoning {json.dumps(reasoning)}"
+                    + (f", only {allowed}" if allowed else ""),
+                )
         if prompt_info.persona:
             personas = load_prompter_config("personas")
             if prompt_info.persona not in personas:

@@ -7,12 +7,28 @@ export interface ModelOverride {
 	category?: "chat" | "embeddings";
 	context_length?: number;
 	label?: string;
+	// what a prompt can ask it to think at, in the provider's own words, or false and true for a
+	// model that can only be switched. an empty list offers nothing
+	reasoning?: (boolean | string)[];
+	reasoning_default?: boolean | string;
 }
 
 // whose key a request is made with: the admin's, the requesting user's own, or the user's when
 // they've added one and otherwise the admin's. Users' keys need security to be fully enabled
 export const CREDENTIAL_MODES = ["shared", "user", "shared_or_user"] as const;
 export type CredentialMode = (typeof CREDENTIAL_MODES)[number];
+
+// which request fields a provider takes how a model should think in. Left out, the API tells it
+// from the provider's host
+export const REASONING_FORMATS = [
+	"effort",
+	"llama_cpp",
+	"openrouter",
+	"thinking",
+	"enable_thinking",
+	"anthropic",
+] as const;
+export type ReasoningFormat = (typeof REASONING_FORMATS)[number];
 
 /** an OpenAI-compatible API the API can send prompts to, as it reads it */
 export interface ProviderConfig {
@@ -22,6 +38,7 @@ export interface ProviderConfig {
 	headers?: Record<string, string>;
 	credential_mode?: CredentialMode;
 	user_id_field?: string;
+	reasoning_format?: ReasoningFormat;
 	// without allow every model the provider lists is offered, and an empty one offers none
 	models?: { allow?: string[]; overrides?: Record<string, ModelOverride> };
 }

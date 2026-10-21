@@ -95,11 +95,18 @@ def prompter_server(
     @reactive.extended_task
     async def load_selected_model(model_name: str):
         await load_models(client, model_name)
+        # llama.cpp only shows how a model can be told to think once it is loaded
+        return await client.get_provider_models("chat")
 
     @reactive.effect
     def load_selected_model_effect():
-        load_selected_model.result()
+        chat_models.set(load_selected_model.result())
         llm_loaded.set(True)
+
+    def current_chat_model() -> ProviderModelInfo | None:
+        return next(
+            (x for x in chat_models.get() or [] if x.id == current_model.get()), None
+        )
 
     @reactive.extended_task
     async def init_models():
@@ -149,9 +156,7 @@ def prompter_server(
     @reactive.effect
     @reactive.event(current_model, ignore_none=True, ignore_init=True)
     def on_current_model_set():
-        model = next(
-            (x for x in chat_models.get() or [] if x.id == current_model.get()), None
-        )
+        model = current_chat_model()
         # a remote model is ready as soon as its provider lists it, only llama.cpp loads one
         if model and model.provider_id == "local":
             load_selected_model(model.model_id)
@@ -230,6 +235,11 @@ def prompter_server(
             if chat_models.get()
             else []
         )
+        model = current_chat_model()
+        if model and model.reasoning:
+            response_selectors.append(
+                ui.panel_conditional(shapes_response, reasoning_select(model))
+            )
         # we only display the model selector if more than one model is available
         if len(chat_models.get()) > 1:
             names = provider_names.get()
@@ -273,6 +283,31 @@ def prompter_server(
             ),
         )
 
+    def reasoning_select(model: ProviderModelInfo):
+        # each value as JSON, so false and true come back as themselves rather than as text
+        choices = {
+            json.dumps(x): ("On" if x else "Off") if isinstance(x, bool) else x
+            for x in model.reasoning
+        }
+        default = model.reasoning_default
+        # an empty choice sends nothing, for a model whose own default isn't known
+        if default is None:
+            choices = {"": "Default", **choices}
+        return ui.input_select(
+            id="reasoning_select",
+            label="Reasoning",
+            choices=choices,
+            selected="" if default is None else json.dumps(default),
+        )
+
+    def selected_reasoning() -> bool | str | None:
+        model = current_chat_model()
+        # the selector is only rendered for a model that can be told how to think
+        if not model or not model.reasoning:
+            return None
+        selected = input.reasoning_select()
+        return json.loads(selected) if selected else None
+
     @reactive.effect
     @reactive.event(input.task_select)
     def update_chat_placeholder():
@@ -313,6 +348,7 @@ def prompter_server(
         selected_enhancers: list[str] | None,
         file_path: str | None,
         model: str | None,
+        reasoning: bool | str | None,
     ):
         try:
             async for x in client.prompt(
@@ -323,6 +359,7 @@ def prompter_server(
                 selected_enhancers,
                 file_path,
                 model,
+                reasoning,
             ):
                 if x.response:
                     yield x.response
@@ -365,6 +402,7 @@ def prompter_server(
                 attachments_file(attachments) if attachments else None,
                 # without a chat model only a search runs, which needs none
                 current_model.get() if has_chat_model else None,
+                selected_reasoning() if has_chat_model else None,
             )
         )
 

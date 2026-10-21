@@ -146,6 +146,11 @@ class ProviderModelInfo(BaseModel):
     context_length: Optional[int] = None
     # whether llama.cpp has it loaded. only `local` models have one, a remote model is always ready
     status: Optional[str] = None
+    # what a prompt can ask it to think at, in the provider's own words: a level such as "high", or
+    # false and true for a model that can only be switched. None when it can't be told how to think
+    reasoning: Optional[list[bool | str]] = None
+    # what it thinks at when a prompt doesn't say, where that is known
+    reasoning_default: Optional[bool | str] = None
 
 
 class PromptInfo(BaseModel):
@@ -157,6 +162,8 @@ class PromptInfo(BaseModel):
     file_id: Optional[str] = None
     # the chat model to answer with, or else the requester's selection
     model: Optional[str] = None
+    # one of the model's `reasoning` values, or None to leave it thinking as it does by default
+    reasoning: Optional[bool | str] = None
 
 
 class PageInfo(BaseModel):

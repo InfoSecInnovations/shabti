@@ -264,6 +264,7 @@ export const providerFromForm = (
 		embedsOnly,
 	);
 	const userIdField = previous?.provider.user_id_field;
+	const reasoningFormat = previous?.provider.reasoning_format;
 	const overrides = previous?.provider.models?.overrides;
 	return {
 		provider: {
@@ -273,6 +274,7 @@ export const providerFromForm = (
 			...(Object.keys(headers).length ? { headers } : {}),
 			...(mode != "shared" ? { credential_mode: mode } : {}),
 			...(userIdField ? { user_id_field: userIdField } : {}),
+			...(reasoningFormat ? { reasoning_format: reasoningFormat } : {}),
 			// an empty list rather than none, which would offer every model it lists
 			models: { allow: models, ...(overrides ? { overrides } : {}) },
 		},

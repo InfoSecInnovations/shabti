@@ -91,6 +91,7 @@ def test_everything_a_provider_can_carry_is_read(write_config):
                     **PROVIDER,
                     "headers": {"X-Org": "an-org"},
                     "user_id_field": "safety_identifier",
+                    "reasoning_format": "thinking",
                     "models": {
                         "allow": ["chat"],
                         "overrides": {"chat": {"context_length": 1000}},
@@ -102,6 +103,7 @@ def test_everything_a_provider_can_carry_is_read(write_config):
     provider = providers_config().providers[0]
     assert provider.headers == {"X-Org": "an-org"}
     assert provider.user_id_field == "safety_identifier"
+    assert provider.reasoning_format == "thinking"
     assert provider.allow == ("chat",)
     assert provider.overrides == {"chat": {"context_length": 1000}}
 
@@ -134,6 +136,7 @@ def test_a_rewritten_file_is_read_again(write_config):
         {**PROVIDER, "base_url": "api.test/v1"},
         {**PROVIDER, "credential_mode": "per-user"},
         {**PROVIDER, "credential_mode": "none"},
+        {**PROVIDER, "reasoning_format": "reasoning_effort"},
         "remote",
     ],
 )

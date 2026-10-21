@@ -274,6 +274,28 @@ describe("the prefixes a model wants on its input", () => {
 	});
 });
 
+describe("what a chat model can be asked to think at", () => {
+	test("is carried for the API alone", () => {
+		const { sections, settings } = build({
+			chat: { ...CHAT, shabti_reasoning: '[false, "low", "high"]' },
+			embed: EMBED,
+		});
+		expect(settings["local/chat"]).toEqual({
+			reasoning: [false, "low", "high"],
+		});
+		expect(sections.chat).not.toHaveProperty("shabti_reasoning");
+	});
+
+	test("is refused unless it is a list of levels and switches", () => {
+		expect(() =>
+			build({ chat: { ...CHAT, shabti_reasoning: "low, high" }, embed: EMBED }),
+		).toThrow("shabti_reasoning");
+		expect(() =>
+			build({ chat: { ...CHAT, shabti_reasoning: "[1, 2]" }, embed: EMBED }),
+		).toThrow("shabti_reasoning");
+	});
+});
+
 describe("the files", () => {
 	const dirs: string[] = [];
 

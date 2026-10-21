@@ -27,6 +27,8 @@ const CATALOGUE = {
 				id: "chat",
 				name: "Chat",
 				limit: { context: 8000, output: 1000 },
+				reasoning: true,
+				reasoning_options: [{ type: "toggle" }],
 				cost: { input: 1 },
 			},
 		},
@@ -39,7 +41,12 @@ const TRIMMED = {
 	providers: {
 		zeta: {
 			api: "https://api.zeta.test/v1",
-			models: { chat: { limit: { context: 8000, output: 1000 } } },
+			models: {
+				chat: {
+					limit: { context: 8000, output: 1000 },
+					reasoning_options: [{ type: "toggle" }],
+				},
+			},
 		},
 		alpha: { models: { solo: {} } },
 		empty: { models: {} },

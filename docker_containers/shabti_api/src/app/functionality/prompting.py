@@ -3,6 +3,7 @@ import openai
 from chatlas import ChatOpenAICompletions
 from .providers.config import LOCAL
 from .providers.errors import provider_error, upstream_detail
+from .providers.reasoning import reasoning_request
 from .providers.registry import ChatModel
 
 # a remote API that stops answering has failed, however long the answer it was writing
@@ -41,6 +42,7 @@ async def stream_response(
     persona_prompt=None,
     enhancer_prompts=None,
     source_file_contents=None,
+    reasoning=None,
 ):
     provider = model.provider
     chat = ChatOpenAICompletions(
@@ -57,7 +59,11 @@ async def stream_response(
         },
     )
     # in the body rather than as `user`, since not every provider calls the field that
-    request = {"extra_body": {provider.user_id_field: user}} if user else None
+    body = {provider.user_id_field: user} if user else {}
+    # None leaves the model thinking as it does by default
+    if reasoning is not None:
+        body |= reasoning_request(provider, reasoning)
+    request = {"extra_body": body} if body else None
     try:
         async for x in await chat.stream_async(
             user_turn(context, user_input, source_file_contents),

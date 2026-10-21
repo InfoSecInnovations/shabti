@@ -229,6 +229,8 @@ class BaseShabtiClient(ABC):
         file_path: str | None = None,
         # the chat model to answer with, or else the user's selection
         model: str | None = None,
+        # one of the model's `reasoning` values, or None for its default
+        reasoning: bool | str | None = None,
     ):
         file_id = None
         if file_path:
@@ -248,6 +250,7 @@ class BaseShabtiClient(ABC):
                 "enhancers": enhancers,
                 "file_id": file_id,
                 "model": model,
+                "reasoning": reasoning,
             },
         ):
             yield PromptChunk(**json.loads(line))

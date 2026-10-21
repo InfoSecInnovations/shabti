@@ -17,6 +17,8 @@ from shabti_types import ModelNotFoundError, PromptInfo
 from ...src.app.dependencies import prompt_info_validator as validator_module
 from ...src.app.dependencies.prompt_info_validator import PromptInfoValidator
 from ...src.app.functionality.load_prompter_config import load_prompter_config
+from ...src.app.functionality.providers.config import Provider
+from ...src.app.functionality.providers.registry import ChatModel
 
 TASKS = sorted(load_prompter_config("tasks"))
 PERSONAS = sorted(load_prompter_config("personas"))
@@ -60,6 +62,22 @@ def no_chat_model(monkeypatch):
         raise ModelNotFoundError(message="No chat model is available")
 
     monkeypatch.setattr(validator_module, "resolve_prompt_model", resolve_prompt_model)
+
+
+@pytest.fixture
+def thinking_model(monkeypatch):
+    """A chat model that can be switched off or told a level."""
+    model = ChatModel(
+        provider=Provider(id="remote", name="Remote", base_url="https://api.test/v1"),
+        model_id="chat",
+        reasoning=(False, "low", "high"),
+    )
+
+    async def resolve_prompt_model(credentials, requested):
+        return model
+
+    monkeypatch.setattr(validator_module, "resolve_prompt_model", resolve_prompt_model)
+    return model
 
 
 @pytest.fixture
@@ -209,6 +227,29 @@ async def test_a_task_with_a_prompt_needs_a_chat_model(no_chat_model, task):
     with pytest.raises(HTTPException) as raised:
         await PromptInfoValidator()(prompt_info(task=task))
     assert raised.value.detail == "No chat model is available"
+
+
+@pytest.mark.parametrize("reasoning", [None, False, "low", "high"])
+async def test_reasoning_the_model_takes_is_accepted(thinking_model, reasoning):
+    model = await PromptInfoValidator()(
+        prompt_info(task="question", reasoning=reasoning)
+    )
+    assert model == thinking_model
+
+
+@pytest.mark.parametrize("reasoning", [True, "medium", "false"])
+async def test_reasoning_the_model_doesnt_take_is_rejected(thinking_model, reasoning):
+    with pytest.raises(HTTPException) as raised:
+        await PromptInfoValidator()(prompt_info(task="question", reasoning=reasoning))
+    assert raised.value.status_code == 400
+    # so the caller can see what it does take
+    assert raised.value.detail.endswith('only false, "low", "high"')
+
+
+@pytest.mark.parametrize("task", PROMPTLESS)
+async def test_a_task_without_a_prompt_ignores_reasoning(thinking_model, task):
+    # nothing is generated, so there is nothing to think about
+    assert await PromptInfoValidator()(prompt_info(task=task, reasoning="max")) is None
 
 
 @pytest.mark.parametrize("task", TASKS)
