@@ -31,7 +31,7 @@
 	"scripts": {
 		"dev_client": "cd .. && bun build ./shabti_configurator/client/index.ts ./shabti_configurator/client/progress.ts --outdir ./shabti_configurator/assets --watch",
 		"dev_server": "bun run --watch index.tsx --dev-mode",
-		"dev_install": "bun run --parallel dev_client dev_server",
+		"dev_install": "bun run ./devInstall.ts",
 		"build_zip": "bun run ./zipDockerCompose.ts",
 		"build_client": "bun build ./client/index.ts ./client/progress.ts --outdir ./assets --minify",
 		"build_win": "bun run build_zip && bun run build_client && bun build ./index.tsx --compile --target=bun-windows-x64 --outfile dist/windows/shabti",
