@@ -108,3 +108,88 @@ def test_corpus_ids_takes_the_stem_of_each_source_filename_in_order():
 def test_parser_rejects_unknown_dataset_before_touching_the_network():
     with pytest.raises(SystemExit):
         run.main(["not-a-dataset"])
+
+
+def test_rrf_puts_a_chunk_found_by_both_legs_first():
+    # h2 is second in both legs, which beats h1 and h3 each found by only one leg at rank 1
+    legs = {
+        "q": {
+            "dense": [("h1", "A", 0.9), ("h2", "B", 0.8)],
+            "keyword": [("h3", "C", 5.0), ("h2", "B", 4.0)],
+        }
+    }
+
+    runs = run.sweep_runs(legs)
+
+    assert runs["S-rrf60"]["q"][0] == "B"
+
+
+def test_min_max_at_dense_weight_90_follows_the_dense_order():
+    # keyword favours C, but at a 0.9 dense weight the dense spread dominates the order
+    legs = {
+        "q": {
+            "dense": [("d1", "A", 0.9), ("d2", "B", 0.7), ("d3", "C", 0.5)],
+            "keyword": [("d3", "C", 9.0), ("d2", "B", 1.0)],
+        }
+    }
+
+    runs = run.sweep_runs(legs)
+
+    assert runs["S-mm90"]["q"] == ["A", "B", "C"]
+
+
+def test_bm25_run_is_the_keyword_leg_in_its_own_order():
+    legs = {
+        "q": {
+            "dense": [("d1", "A", 0.9)],
+            "keyword": [("k2", "Y", 7.0), ("k1", "X", 3.0)],
+        }
+    }
+
+    runs = run.sweep_runs(legs)
+
+    assert runs["S-bm25"]["q"] == ["Y", "X"]
+
+
+def test_empty_dense_leg_empties_fused_runs_but_not_bm25():
+    legs = {
+        "q": {
+            "dense": [],
+            "keyword": [("k1", "X", 3.0)],
+        }
+    }
+
+    runs = run.sweep_runs(legs)
+
+    assert runs["S-bm25"]["q"] == ["X"]
+    assert runs["S-dense"]["q"] == []
+    assert runs["S-rrf60"]["q"] == []
+    assert runs["S-mm50"]["q"] == []
+
+
+def test_candidate_ceilings_are_mean_recall_over_answerable_queries_at_full_depth():
+    legs = {
+        # relevant A, B, C; dense finds A only, keyword finds B and A
+        "q1": {
+            "dense": [("h1", "A", 0.9), ("h2", "X", 0.8)],
+            "keyword": [("h3", "B", 5.0), ("h4", "A", 4.0)],
+        },
+        # relevant Z; neither leg finds it
+        "q2": {
+            "dense": [("h5", "Y", 0.7)],
+            "keyword": [],
+        },
+        # unanswerable: must not count towards the means
+        "u1": {
+            "dense": [("h9", "C", 0.6)],
+            "keyword": [],
+        },
+    }
+    qrels = {"q1": {"A": 1, "B": 1, "C": 1}, "q2": {"Z": 1}}
+
+    ceilings = run.candidate_ceilings(legs, qrels)
+
+    # q1: dense 1/3, keyword 2/3, union 2/3 (A, X, B distinct); q2: all 0
+    assert ceilings["dense"] == pytest.approx((1 / 3 + 0) / 2)
+    assert ceilings["keyword"] == pytest.approx((2 / 3 + 0) / 2)
+    assert ceilings["union"] == pytest.approx((2 / 3 + 0) / 2)

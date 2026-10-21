@@ -28,7 +28,13 @@ from ...src.app.functionality.document_collections import (
     get_collections,
 )
 from ...src.app.functionality.opensearch import close_client, get_client
-from ...src.app.functionality.opensearch_prompting import get_context_from_opensearch
+from ...src.app.functionality.fusion import min_max_fusion, reciprocal_rank_fusion
+from ...src.app.functionality.opensearch_prompting import (
+    dense_query,
+    embed_query,
+    get_context_from_opensearch,
+    keyword_query,
+)
 from ...src.load_dotenv import load_env
 from .datasets import NAMES, Dataset, Split, holdout, load
 from .metrics import (
@@ -81,6 +87,10 @@ VARIANTS: dict[str, dict[str, str]] = {
 
 # every key any variant touches, so variant_env can clear them all before applying overrides
 VARIANT_KEYS = sorted({key for overrides in VARIANTS.values() for key in overrides})
+
+# the fusion settings the offline sweep tries, matching what production exposes as tunables
+RRF_KS = (10, 20, 40, 60, 100)
+MIN_MAX_DENSE_WEIGHTS = tuple(range(10, 100, 10))
 
 
 @contextmanager
@@ -246,6 +256,126 @@ async def _retrieve(
         await close_client()
 
 
+async def _parent_corpus_ids(collection_id: str) -> dict[str, str]:
+    # parents are the documents; a chunk points back at its parent by OpenSearch id, so this maps
+    # that id to the corpus id the file was uploaded under
+    query = {"term": {"type": "document"}}
+    count = await _count_documents(collection_id)
+    response = await get_client().search(
+        body={"size": count, "query": query, "_source": ["filename"]},
+        index=collection_id,
+    )
+    return {
+        hit["_id"]: Path(hit["_source"]["filename"]).stem
+        for hit in response["hits"]["hits"]
+    }
+
+
+async def _fetch_legs(
+    collection_id: str, queries: dict[str, str], depth: int
+) -> dict[str, dict[str, list[tuple[str, str, float]]]]:
+    # one loop for every query, since the OpenSearch client is cached per loop
+    try:
+        client = get_client()
+        parents = await _parent_corpus_ids(collection_id)
+        legs = {}
+        for query_id, text in queries.items():
+            embedding = await asyncio.to_thread(embed_query, text)
+            result = await client.msearch(
+                body=[
+                    {"index": collection_id},
+                    dense_query(embedding, depth, []),
+                    {"index": collection_id},
+                    keyword_query(text, depth, []),
+                ]
+            )
+            responses = result["responses"]
+            for response in responses:
+                if "error" in response:
+                    raise RuntimeError(response["error"])
+            legs[query_id] = {
+                name: [
+                    (
+                        hit["_source"]["text_hash"],
+                        parents[hit["_source"]["child_item_to_document"]["parent"]],
+                        hit["_score"],
+                    )
+                    for hit in response["hits"]["hits"]
+                ]
+                for name, response in zip(("dense", "keyword"), responses)
+            }
+        return legs
+    finally:
+        await close_client()
+
+
+def sweep_runs(
+    legs: dict[str, dict[str, list[tuple[str, str, float]]]],
+    reference_limit: int = 10,
+) -> dict[str, dict[str, list[str]]]:
+    runs: dict[str, dict[str, list[str]]] = {"S-dense": {}, "S-bm25": {}}
+    for k in RRF_KS:
+        runs[f"S-rrf{k}"] = {}
+    for dense_percent in MIN_MAX_DENSE_WEIGHTS:
+        runs[f"S-mm{dense_percent}"] = {}
+
+    for query_id, leg in legs.items():
+        dense, keyword = leg["dense"], leg["keyword"]
+        # fusion works on text_hash, so the corpus id each chunk maps to is kept alongside it
+        corpus: dict[str, str] = {}
+        for text_hash, corpus_id, _ in [*dense, *keyword]:
+            corpus.setdefault(text_hash, corpus_id)
+
+        runs["S-dense"][query_id] = [corpus_id for _, corpus_id, _ in dense]
+        runs["S-bm25"][query_id] = [corpus_id for _, corpus_id, _ in keyword]
+
+        dense_keys = [text_hash for text_hash, _, _ in dense]
+        keyword_keys = [text_hash for text_hash, _, _ in keyword]
+        dense_scored = [(text_hash, score) for text_hash, _, score in dense]
+        keyword_scored = [(text_hash, score) for text_hash, _, score in keyword]
+        # mirrors production: with no dense hits and no reranker, the answer is empty
+        gated = not dense
+
+        def to_corpus(fused: list[tuple[str, float]]) -> list[str]:
+            return [corpus[text_hash] for text_hash, _ in fused[:reference_limit]]
+
+        for k in RRF_KS:
+            fused = (
+                [] if gated else reciprocal_rank_fusion([dense_keys, keyword_keys], k)
+            )
+            runs[f"S-rrf{k}"][query_id] = to_corpus(fused)
+        for dense_percent in MIN_MAX_DENSE_WEIGHTS:
+            dense_weight = dense_percent / 100
+            fused = (
+                []
+                if gated
+                else min_max_fusion(
+                    [dense_scored, keyword_scored], [dense_weight, 1 - dense_weight]
+                )
+            )
+            runs[f"S-mm{dense_percent}"][query_id] = to_corpus(fused)
+    return runs
+
+
+def candidate_ceilings(
+    legs: dict[str, dict[str, list[tuple[str, str, float]]]],
+    qrels: dict[str, dict[str, int]],
+) -> dict[str, float]:
+    # recall at full depth: what a first stage could hand to fusion or a reranker at best
+    found: dict[str, list[float]] = {"dense": [], "keyword": [], "union": []}
+    for query_id in qrels:
+        leg = legs[query_id]
+        dense = [corpus_id for _, corpus_id, _ in leg["dense"]]
+        keyword = [corpus_id for _, corpus_id, _ in leg["keyword"]]
+        union = [*dense, *keyword]
+        rel = qrels[query_id]
+        # k is the whole list, so recall counts every deduped doc the leg returned
+        found["dense"].append(recall_at_k(dense, rel, len(dense)))
+        found["keyword"].append(recall_at_k(keyword, rel, len(keyword)))
+        found["union"].append(recall_at_k(union, rel, len(union)))
+    return {name: mean(values) for name, values in found.items()}
+
+
 def evaluate(
     run: dict[str, list[str]],
     qrels: dict[str, dict[str, int]],
@@ -286,11 +416,15 @@ def evaluate(
 
 
 def markdown_report(
-    dataset_name: str, results: dict[str, dict], baseline: str = "B0"
+    dataset_name: str,
+    results: dict[str, dict],
+    baseline: str = "B0",
+    heading: bool = True,
 ) -> str:
+    # the sweep table sits under its own section heading, so it leaves the title off
+    title = [f"# Retrieval benchmark: {dataset_name}", ""] if heading else []
     lines = [
-        f"# Retrieval benchmark: {dataset_name}",
-        "",
+        *title,
         "| Variant | Hit@5 | Recall@5 | nDCG@10 | MRR@10 | ΔnDCG@10 vs "
         f"{baseline} (p) | Empty on unanswerable | Empty on answerable | p50 ms | p95 ms |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -350,6 +484,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="use only the first N query ids of each of the answerable and unanswerable sets",
     )
+    parser.add_argument(
+        "--sweep-depth",
+        type=int,
+        default=100,
+        help="candidates per leg for the offline fusion sweep, 0 disables it",
+    )
     parser.add_argument("--holdout", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="/test_results/bench")
@@ -372,16 +512,43 @@ def main(argv: list[str] | None = None) -> None:
     with TestClient(create_app()) as client:
         collection_id = ensure_collection(dataset, split, client)
         raw = asyncio.run(_retrieve(collection_id, queries, variant_ids))
+        legs = (
+            asyncio.run(_fetch_legs(collection_id, queries, args.sweep_depth))
+            if args.sweep_depth > 0
+            else None
+        )
 
     results = {
         variant_id: evaluate(ranked, split.answerable, split.unanswerable, latencies)
         for variant_id, (ranked, latencies) in raw.items()
     }
 
+    sweep = None
+    if legs is not None:
+        sweep = {
+            "depth": args.sweep_depth,
+            "ceilings": candidate_ceilings(legs, split.answerable),
+            "runs": {
+                run_id: evaluate(ranked, split.answerable, split.unanswerable, {})
+                for run_id, ranked in sweep_runs(legs).items()
+            },
+        }
+
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out) / f"{stamp}-{args.dataset}"
     out_dir.mkdir(parents=True, exist_ok=True)
     report = markdown_report(args.dataset, results)
+    if sweep is not None:
+        ceilings = sweep["ceilings"]
+        report += (
+            f"\n## Offline fusion sweep (depth {sweep['depth']})\n\n"
+            f"Candidate ceilings (recall@{sweep['depth']}): "
+            f"dense {ceilings['dense']:.3f}, keyword {ceilings['keyword']:.3f}, "
+            f"union {ceilings['union']:.3f}\n\n"
+            + markdown_report(
+                args.dataset, sweep["runs"], baseline="S-dense", heading=False
+            )
+        )
     payload = {
         "dataset": args.dataset,
         "args": vars(args),
@@ -392,6 +559,7 @@ def main(argv: list[str] | None = None) -> None:
             "unanswerable": len(split.unanswerable),
         },
         "variants": results,
+        "sweep": sweep,
     }
     (out_dir / "results.json").write_text(
         json.dumps(payload, indent=2), encoding="utf-8"
