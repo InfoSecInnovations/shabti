@@ -1,0 +1,6 @@
+# Layered over the security-disabled stack for `bun run bench`. Only the llama.cpp models are pinned:
+# the test stack has already downloaded them, and a bench project would otherwise fetch every GGUF
+# again under its own name. Everything else, including OpenSearch, is per bench project.
+volumes:
+  llama-cpp-models:
+    name: shabti_llama-cpp-models

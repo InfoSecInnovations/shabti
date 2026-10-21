@@ -64,6 +64,32 @@ docker ps                                            # find the shabti-pytest-ap
 docker exec <container> /app/shabti/.venv/bin/python -m asyncio pstree 11
 ```
 
+## Benchmark
+
+```
+bun run bench scifact                                     # the defaults
+bun run bench nfcorpus --embeddings-model bge-m3 --chunk-size 256 -- --queries 200
+```
+
+The dataset is `scifact` or `nfcorpus`. Everything after `--` goes to `python -m tests.bench`. The options are:
+
+| flag | |
+|---|---|
+| `--embeddings-model <name>` | the local embeddings model (default `all-MiniLM-L6-v2`) |
+| `--chunk-size <n>` | tokens per chunk (default 128) |
+| `--rerankers <names...>` | the local rerankers to compare (default all three in the catalogue) |
+| `--fresh` | drop this bench stack's OpenSearch data before indexing |
+| `--keep-up` | leave the stack running afterwards |
+
+Each embeddings model and chunk size gets its own OpenSearch volume, so a rerun with the same settings
+reuses the indexed data. The models the tests downloaded are reused too.
+
+The bench and test stacks share container names and a network, so they can't be up at the same time.
+A bench run takes the test stack down before it starts. A bench stack left up with `--keep-up` has to be
+taken down with `docker compose -p shabti-bench-<slug> down` before `bun run test`.
+
+The report lands in `testing/test_results/bench/<stamp>-<dataset>/report.md`.
+
 ## Where things are
 
 | | |
