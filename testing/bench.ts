@@ -119,18 +119,19 @@ const benchmark = async (
 	}
 
 	console.log(`running the benchmark on ${dataset}...`);
-	// no timeout: a real dataset can take hours, and the run's own exit code is what matters
+	// no timeout: a real dataset can take hours, and the run's own exit code is what matters.
+	// from /app as shabti.tests.bench, because the tests import src relatively from above tests
 	const result = await runCommand(
 		benchCompose(project, [
 			"run",
 			"--rm",
 			"-T",
+			"--workdir",
+			"/app",
 			"pytest-api",
-			"uv",
-			"run",
-			"python",
+			"/app/shabti/.venv/bin/python",
 			"-m",
-			"tests.bench",
+			"shabti.tests.bench",
 			dataset,
 			...extra,
 		]),
@@ -142,12 +143,15 @@ const program = new Command()
 	.name("bench")
 	.description(
 		"Benchmarks a dataset against one embeddings model, chunk size and set of rerankers, in a " +
-			"stack of its own. Anything after -- goes to python -m tests.bench.\n\n" +
+			"stack of its own. Anything after -- goes to python -m shabti.tests.bench.\n\n" +
 			"The test stack and a bench stack cannot be up at the same time, so a bench run takes the " +
 			"test stack down first.",
 	)
 	.argument("<dataset>", "the dataset to benchmark against")
-	.argument("[extra...]", "passed through to python -m tests.bench, after --")
+	.argument(
+		"[extra...]",
+		"passed through to python -m shabti.tests.bench, after --",
+	)
 	.option(
 		"--embeddings-model <name>",
 		"the local embeddings model to index with",

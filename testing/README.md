@@ -71,7 +71,7 @@ bun run bench scifact                                     # the defaults
 bun run bench nfcorpus --embeddings-model bge-m3 --chunk-size 256 -- --queries 200
 ```
 
-The dataset is `scifact` or `nfcorpus`. Everything after `--` goes to `python -m tests.bench`. The options are:
+The dataset is `scifact` or `nfcorpus`. Everything after `--` goes to `python -m shabti.tests.bench`. The options are:
 
 | flag | |
 |---|---|

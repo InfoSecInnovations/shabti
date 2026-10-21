@@ -475,7 +475,7 @@ def _limit(split: Split, count: int | None) -> Split:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m tests.bench")
+    parser = argparse.ArgumentParser(prog="python -m shabti.tests.bench")
     parser.add_argument("dataset", choices=NAMES)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=None)
     parser.add_argument(
