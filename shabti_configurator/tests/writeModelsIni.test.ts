@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import getDefaultModelSelection, {
+	localModels,
 	type ModelSelection,
 } from "../getDefaultModelSelection";
 import getModelsConfig from "../getModelsConfig";
@@ -33,6 +34,15 @@ const EMBED = {
 	hf: "someone/embed-gguf:Q4_K_M",
 	tags: "embeddings",
 	shabti_chunk_size: "128",
+};
+const RERANK = {
+	hf: "someone/rerank-gguf:Q8_0",
+	tags: "rerank",
+	reranking: "true",
+	pooling: "rank",
+	"ctx-size": "4096",
+	"ubatch-size": "2048",
+	"batch-size": "2048",
 };
 const SELECTION = {
 	chatModels: ["chat"],
@@ -113,7 +123,37 @@ describe("the preset sections llama.cpp reads", () => {
 	});
 });
 
+describe("a reranker a selection adds", () => {
+	test("gets its own preset section with its tags and reranking on", () => {
+		const { sections } = build(
+			{ chat: CHAT, embed: EMBED, rerank: RERANK },
+			{ ...SELECTION, rerankModels: ["rerank"] },
+		);
+		// without reranking and pooling llama.cpp would serve it as an embeddings model
+		expect(sections.rerank).toEqual(RERANK);
+	});
+
+	test("is among the models llama.cpp has to serve", () => {
+		expect(localModels({ ...SELECTION, rerankModels: ["rerank"] })).toEqual([
+			"chat",
+			"embed",
+			"rerank",
+		]);
+	});
+});
+
 describe("the settings the API reads", () => {
+	test("take an embeddings chunk size from the selection over the catalogue's", () => {
+		// the chunk size is picked per install, so it has to win over what the catalogue says
+		const { settings, sections } = build(
+			{ chat: CHAT, embed: EMBED },
+			{ ...SELECTION, embeddingsChunkSize: 512 },
+		);
+		expect(settings).toEqual({ "local/embed": { chunk_size: 512 } });
+		// and the batch raises for it the same way the catalogue's would
+		expect(sections.embed["ubatch-size"]).toBe(576);
+	});
+
 	test("carry the chunk size as a number", () => {
 		// the ini parser hands every value back as a string, and this one is read as a number
 		// keyed by the qualified id, as a provider's embeddings model goes in here too

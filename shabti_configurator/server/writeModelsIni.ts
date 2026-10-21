@@ -80,6 +80,8 @@ const SHABTI_KEYS: Record<string, (raw: string, where: string) => unknown> = {
 
 // which llama.cpp options a catalogue entry is allowed to set, checked so that a typo is reported
 // here, by the installer, rather than as a container that won't come up
+// reranking and pooling are what make a reranker a reranker to llama.cpp, rather than an embeddings
+// model that returns a vector per input
 const PRESET_KEYS = [
 	"hf",
 	"tags",
@@ -87,6 +89,8 @@ const PRESET_KEYS = [
 	"ubatch-size",
 	"batch-size",
 	"n-gpu-layers",
+	"reranking",
+	"pooling",
 ];
 
 // the batch sizes everything runs with unless a model asks for more. deliberately small: they were
@@ -242,7 +246,10 @@ export const buildModelsConfig = (
 	// from don't carry one, and the model's own trained context is an architectural ceiling rather
 	// than a sensible chunk size, so this is decided here and recorded rather than inferred
 	const embeddingsKey = qualify(LOCAL_PROVIDER, embeddingsModel);
-	const chunkSize = settings[embeddingsKey]?.chunk_size || DEFAULT_CHUNK_SIZE;
+	// a selection's size wins over the catalogue's, which wins over the default
+	const chunkSize =
+		selection.embeddingsChunkSize ??
+		(settings[embeddingsKey]?.chunk_size || DEFAULT_CHUNK_SIZE);
 	settings[embeddingsKey] = {
 		...settings[embeddingsKey],
 		chunk_size: chunkSize,

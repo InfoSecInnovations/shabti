@@ -22,6 +22,11 @@ export interface ModelSelection {
 	remoteEmbeddings?: RemoteEmbeddings;
 	// undefined when there are no chat models, which leaves Shabti only able to search
 	defaultModel?: string;
+	// local rerankers llama.cpp serves alongside the rest. only the test and benchmark stacks pick
+	// them for now
+	rerankModels?: string[];
+	// overrides the local embeddings model's chunk size in the catalogue
+	embeddingsChunkSize?: number;
 }
 
 // the models llama.cpp has to serve for this selection
@@ -30,6 +35,7 @@ export const localModels = (selection: ModelSelection) => [
 	...(selection.embeddingsModel && !selection.remoteEmbeddings
 		? [selection.embeddingsModel]
 		: []),
+	...(selection.rerankModels ?? []),
 ];
 
 // derives a usable model selection straight from the bundled catalogue,
