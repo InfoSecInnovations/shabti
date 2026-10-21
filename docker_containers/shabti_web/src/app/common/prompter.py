@@ -246,6 +246,12 @@ def prompter_server(
                 )
             )
         return ui.TagList(
+            None
+            if chat_models.get()
+            else ui.markdown(
+                "Chat tasks are disabled because you have no chat model available, only "
+                "ingestion and simple searching can currently be done."
+            ),
             ui.chat_ui(
                 id="prompter_chat",
                 placeholder=tasks_dict[selected_task].greeting,

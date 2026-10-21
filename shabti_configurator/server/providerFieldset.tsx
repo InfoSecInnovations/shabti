@@ -6,22 +6,36 @@ const CREDENTIAL_MODE_LABELS: Record<CredentialMode, string> = {
 	shared_or_user: "User's own key, or the shared one",
 };
 
-// users' own keys need security to be fully enabled, so this is only offered where it is
+// users' own keys need security to be fully enabled, so this is only offered where it is. A
+// provider taking only users' keys still has the shared one checked and listed with, which the
+// note says, and setSharedKeyNote in the client bundle shows it as the mode changes
 export const CredentialModeSelect = (props: {
 	id: string;
 	name: string;
 	selected?: CredentialMode;
 }) => (
-	<p id={`${props.id}_field`} class="credential_mode_field">
-		<label for={props.id}>API Keys</label>
-		<select id={props.id} name={props.name}>
-			{Object.entries(CREDENTIAL_MODE_LABELS).map(([mode, label]) => (
-				<option value={mode} selected={mode == (props.selected || "shared")}>
-					{label}
-				</option>
-			))}
-		</select>
-	</p>
+	<div id={`${props.id}_field`} class="credential_mode_field">
+		<p>
+			<label for={props.id}>API Keys</label>
+			<select id={props.id} name={props.name}>
+				{Object.entries(CREDENTIAL_MODE_LABELS).map(([mode, label]) => (
+					<option value={mode} selected={mode == (props.selected || "shared")}>
+						{label}
+					</option>
+				))}
+			</select>
+		</p>
+		<p
+			class={
+				props.selected == "user" ? "shared_key_note" : "shared_key_note hidden"
+			}
+		>
+			<small>
+				Users prompt with their own keys. The shared key is still used to check
+				the provider is up and to list its models.
+			</small>
+		</p>
+	</div>
 );
 
 // a form can add several providers at once, so the ids and names of each one's fields are

@@ -1,5 +1,6 @@
 import getEnvs from "./getEnvs";
 import { CredentialModeSelect, ProviderList } from "./providerFieldset";
+import { ProviderNotice } from "./providerNotice";
 import { userKeysEnabled } from "./userKeys";
 import { readProviders } from "./writeProviders";
 
@@ -12,6 +13,7 @@ export const ProviderManagementForm = async () => {
 			<form action="/manage-providers" method="post">
 				<fieldset>
 					<legend>Model Providers</legend>
+					<ProviderNotice></ProviderNotice>
 					{config.providers.length ? (
 						config.providers.map((provider) => (
 							<fieldset>

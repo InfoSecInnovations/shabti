@@ -431,6 +431,27 @@ const wireProviderList = (formPrefix: string) => {
 	};
 };
 
+// a provider taking only users' own keys still needs the shared one, which a note under its key
+// mode says
+const setSharedKeyNote = (field: Element) =>
+	field
+		.querySelector(".shared_key_note")
+		?.classList.toggle(
+			"hidden",
+			field.querySelector("select")?.value != "user",
+		);
+
+// every form's key modes at once, including those of fieldsets added later
+const wireSharedKeyNotes = () => {
+	document.querySelectorAll(".credential_mode_field").forEach(setSharedKeyNote);
+	document.addEventListener("change", (e) => {
+		const field = (e.target as Element | null)?.closest?.(
+			".credential_mode_field",
+		);
+		if (field) setSharedKeyNote(field);
+	});
+};
+
 // uninstalling and installing over an existing configuration both destroy the user's data and
 // can't be undone, so we make them confirm what they're about to lose. The warning is built
 // here rather than server side because it depends on the state of the form
@@ -548,6 +569,8 @@ const setFormVisibility = () => {
 			field.classList.toggle("hidden", !userKeys);
 			const credentialMode = field.querySelector("select");
 			if (credentialMode && !userKeys) credentialMode.value = "shared";
+			// setting the value fires no change event
+			setSharedKeyNote(field);
 		});
 	const keycloakConfig = document.getElementById("keycloak_config");
 	if (formData.get("security_level") != "none") {
@@ -574,6 +597,7 @@ wireDefaultModelSelector(
 wireProviderList("install_");
 wireProviderList("manage_");
 wireRemoteEmbeddings();
+wireSharedKeyNotes();
 wireLoggingVisibility("activity_logging");
 wireLoggingVisibility("manage_activity_logging");
 wireTabs();

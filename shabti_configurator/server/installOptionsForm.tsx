@@ -16,6 +16,7 @@ import {
 import { readProviders } from "./writeProviders";
 import { readShabtiModels } from "./writeModelsIni";
 import type { RemoteEmbeddingsSettings } from "../getDefaultModelSelection";
+import { ProviderNotice } from "./providerNotice";
 
 const TOKENIZER_OPTIONS = {
 	estimate: "Estimate",
@@ -227,6 +228,7 @@ export const InstallOptionsForm = async (props: {
 			</fieldset>
 			<fieldset>
 				<legend>Model Providers</legend>
+				<ProviderNotice></ProviderNotice>
 				<ProviderList
 					formPrefix="install_"
 					credentialModes

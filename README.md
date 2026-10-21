@@ -49,11 +49,22 @@ Launch the executable and visit the indicated address in your web browser. Selec
 
 Note that the installer launches all the requirements for you, you generally won't need to use the "Launch Shabti" button in the "Manage Shabti" section. Docker will keep everything running for you and you will be able to access Shabti without going via the Configurator once installed.
 
+### Local models
+
+The original design for Shabti only used local models, and we still think this is the most secure option and one of the strong selling points of Shabti.
+
+See [MODELS.md](docs/user/MODELS.md) 
+
 Once Shabti is installed, the "Manage Shabti" section also lets you change which language models are available without reinstalling. Adding a model downloads it, removing one leaves the downloaded files in place so you can add it back again quickly. Applying changes restarts the LLM service, as it only picks up model configuration changes on startup.
 
-Shabti can also answer prompts with any OpenAI-compatible API, such as OpenAI, OpenRouter or a self-hosted server, alongside or instead of the local models. Add one in the "Model Provider" section when installing, or under "Model Providers" in the "Manage Shabti" section afterwards: give it a name, its base URL and API key, click "Test Connection", and choose which of its models to offer. Provider changes apply straight away, without restarting anything. See [MODELS.md](docs/user/MODELS.md#providers) for more.
+### Third-party providers
 
-A provider can embed your documents too. If every model you choose comes from a provider, Shabti runs without llama.cpp, and the GPU and model downloads aren't needed. See [MODELS.md](docs/user/MODELS.md#embeddings-from-a-provider).
+Shabti can also answer prompts with any OpenAI-compatible API, such as OpenAI, OpenRouter or a self-hosted server, alongside or instead of the local models. Add one in the "Model Provider" section when installing, or under "Model Providers" in the "Manage Shabti" section afterwards: give it a name, its base URL and API key, click "Test Connection", and choose which of its models to offer. Provider changes apply straight away, without restarting anything.
+
+> [!CAUTION]
+> Please read [THIRD_PARTY_PROVIDERS.md](docs/user/THIRD_PARTY_PROVIDERS.md), especially the disclaimer section, if you want to use this feature.
+
+A provider can embed your documents too. If every model you choose comes from a provider, Shabti runs without llama.cpp, the model downloads aren't needed, and you don't have to worry about the hardware requirements of running a model. See [Embeddings from a provider](docs/user/THIRD_PARTY_PROVIDERS.md#embeddings-from-a-provider). Note that compared to a chat model, the smaller embeddings models run acceptably without a GPU, although it is noticeably slower.
 
 ### Windows SmartScreen
 
@@ -69,7 +80,7 @@ Please click "More info" which should reveal that the executable is in fact sign
 
 ## Usage
 
-Once you have completed the installation process, Shabti will be running on `localhost:15130` or the host and port you selected during setup. It can take a little while for the containers to be ready after install or relaunch, especially on the first launch as the API needs to pull the embeddings model. If you chose to enable security you will need to access it using `https://` at the start of the address.
+Once you have completed the installation process, Shabti will be running on `localhost:15130` or the host and port you selected during setup. It can take a little while for the containers to be ready after install or relaunch. If you chose to enable security you will need to access it using `https://` at the start of the address.
 
 ## Using Security Features
 
@@ -83,15 +94,11 @@ See the [dedicated guide](docs/user/Security_and_RBAC_Features.md) about using S
 
 We do not yet have code signing configured for MacOS so it will not recognize Shabti as a legitimate application. It is possible to bypass Gatekeeper if you wish to run Shabti anyway, but we have found that certain MacOS versions don't appear to "officially" support doing this.
 
-### Ingesting documents appears to hang for a while
-
-We do not yet have a way to display progress when a document is being processed into text, only once the text is being fed into the database. For smaller documents you probably won't notice this delay much, but processing a document with a very large amount of text can take a long time, please be patient!
-
 ## Troubleshooting
 
-### Shabti API is down
+### Shabti Web or API are down
 
-Check the Docker logs for the container called `shabti`. If you don't see a log that says "Application startup complete", keep waiting, it may still be loading the LLM models.
+Check the Docker logs for the container called `shabti` or `shabti-web` (sometimes displayed as just `web`). If you don't see a log that says "Application startup complete", keep waiting, it could still be loading.
 
 ### Shabti Web UI is broken or blank
 
