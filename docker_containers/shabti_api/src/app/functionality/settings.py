@@ -1,8 +1,8 @@
 """Settings read from the environment, with a default per name.
 
-Integers live in `DEFAULTS` and text in `TEXT_DEFAULTS`. One dict per type rather than scattered
-`os.getenv` calls so the knobs are discoverable in one place and a typo in a name is a `KeyError`
-at the call site instead of a silent default. Booleans keep the `os.getenv(X) == "True"` idiom.
+Integers live in `DEFAULTS`. One dict rather than scattered `os.getenv` calls so the knobs are
+discoverable in one place and a typo in a name is a `KeyError` at the call site instead of a silent
+default. Booleans keep the `os.getenv(X) == "True"` idiom.
 """
 
 import os
@@ -50,30 +50,9 @@ DEFAULTS = {
     # count of distinct references rather than of hits, and raising it costs context window as much
     # as it costs retrieval time
     "SHABTI_PROMPT_REFERENCE_LIMIT": 5,
-    # how many hits each first-stage search fetches when its results are fused, before they are cut
-    # to the reference limit. fusion needs depth from both legs to agree on anything
-    "SHABTI_RETRIEVAL_CANDIDATES": 50,
-    # reciprocal rank fusion's constant: higher flattens the gap between rank 1 and rank 10, so a
-    # chunk both legs rank moderately well beats one only a single leg ranks first
-    "SHABTI_RRF_K": 60,
-}
-
-TEXT_DEFAULTS = {
-    # `dense` or `hybrid`; dense keeps the single vector search
-    "SHABTI_RETRIEVAL_MODE": "dense",
-    # `rrf` or `min_max`; rrf needs no tuning because it fuses on ranks, not on scores that differ
-    # between the vector and keyword legs
-    "SHABTI_HYBRID_FUSION": "rrf",
-    # the dense leg's weight under `min_max`; the keyword leg gets the rest
-    "SHABTI_HYBRID_DENSE_WEIGHT": "0.5",
 }
 
 
 def setting(name: str) -> int:
     value = os.getenv(name)
     return int(value) if value else DEFAULTS[name]
-
-
-def text_setting(name: str) -> str:
-    value = os.getenv(name)
-    return value if value else TEXT_DEFAULTS[name]

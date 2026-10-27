@@ -65,10 +65,7 @@ async def identifier_collection(shabti_client, ingest_and_wait, tmp_path_factory
     await delete_collection(None, collection_id)
 
 
-async def test_hybrid_retrieval_finds_an_identifier_only_query(
-    identifier_collection, monkeypatch
-):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
+async def test_hybrid_retrieval_finds_an_identifier_only_query(identifier_collection):
     context = await get_context_from_opensearch(identifier_collection, 5, identifier)
     assert context["sources"], context
     # the dense leg has nothing to offer for a bare code, so this only passes if the keyword leg

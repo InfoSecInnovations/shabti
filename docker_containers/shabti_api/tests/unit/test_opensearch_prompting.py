@@ -24,16 +24,10 @@ class Client:
     """An index with nothing in it unless a test says otherwise, so retrieval stops after the search."""
 
     def __init__(self):
-        self.searches = []
         self.msearches = []
         self.mgets = []
-        # what a search and each leg of a multi-search find, as the index returns them
-        self.search_hits = []
+        # what each leg of a multi-search finds, as the index returns them
         self.msearch_responses = [empty_response(), empty_response()]
-
-    async def search(self, body, index):
-        self.searches.append(body)
-        return {"hits": {"hits": self.search_hits}}
 
     async def msearch(self, body):
         self.msearches.append(body)
@@ -117,7 +111,9 @@ def embedded(monkeypatch):
 
 
 def searched_vector(embedded):
-    return embedded.client.searches[0]["query"]["knn"]["document_vector"]["vector"]
+    # the dense leg is the first query of the one multi-search
+    _, dense, _, _ = embedded.client.msearches[0]
+    return dense["query"]["knn"]["document_vector"]["vector"]
 
 
 # long enough to need several pieces at a chunk size of 100
@@ -196,46 +192,52 @@ async def test_a_long_question_searches_with_the_average_of_its_pieces(embedded)
     assert math.isclose(math.hypot(*vector), 1.0)
 
 
-async def test_by_default_retrieval_is_one_dense_search_of_the_reference_limit(
-    embedded,
-):
+async def test_a_search_is_one_msearch_of_both_legs_at_the_candidate_count(embedded):
     embedded("")
     client = embedded.client
     await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
-    assert client.msearches == []
-    assert len(client.searches) == 1
-    query = client.searches[0]
-    assert query["size"] == 5
-    knn = query["query"]["knn"]["document_vector"]
-    assert knn["min_score"] == opensearch_prompting.MIN_SCORE
-    assert query["collapse"] == {"field": "text_hash"}
-    assert "text_hash" in query["_source"]["includes"]
-
-
-async def test_hybrid_mode_sends_a_dense_and_a_keyword_search_in_one_msearch(
-    embedded, monkeypatch
-):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
-    monkeypatch.setenv("SHABTI_RETRIEVAL_CANDIDATES", "20")
-    embedded("")
-    client = embedded.client
-    await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
-    assert client.searches == []
     assert len(client.msearches) == 1
     dense_header, dense, keyword_header, keyword = client.msearches[0]
     assert dense_header == {"index": "collection-1"}
     assert keyword_header == {"index": "collection-1"}
-    assert "knn" in dense["query"]
-    assert dense["size"] == 20
-    assert keyword["size"] == 20
+    assert dense["size"] == opensearch_prompting.CANDIDATES
+    assert keyword["size"] == opensearch_prompting.CANDIDATES
+    knn = dense["query"]["knn"]["document_vector"]
+    assert knn["min_score"] == opensearch_prompting.MIN_SCORE
+    assert dense["collapse"] == {"field": "text_hash"}
+    assert "text_hash" in dense["_source"]["includes"]
+
+
+async def test_the_legs_are_never_shallower_than_the_reference_limit(embedded):
+    embedded("")
+    client = embedded.client
+    reference_limit = opensearch_prompting.CANDIDATES + 10
+    await get_context_from_opensearch(
+        "collection-1", reference_limit, "what is a shabti?"
+    )
+    _, dense, _, keyword = client.msearches[0]
+    assert dense["size"] == reference_limit
+    assert keyword["size"] == reference_limit
     assert keyword["query"]["bool"]["must"] == [
         {"match": {"text": "what is a shabti?"}}
     ]
     assert keyword["query"]["bool"]["filter"] == [{"term": {"type": "vector"}}]
 
 
+async def test_a_long_question_gives_the_keyword_leg_only_its_first_characters(
+    embedded,
+):
+    embedded("")
+    client = embedded.client
+    question = "x" * (opensearch_prompting.KEYWORD_MAX_CHARS + 50)
+    await get_context_from_opensearch("collection-1", 5, question)
+    _, _, _, keyword = client.msearches[0]
+    assert keyword["query"]["bool"]["must"] == [
+        {"match": {"text": question[: opensearch_prompting.KEYWORD_MAX_CHARS]}}
+    ]
+
+
 async def test_an_ingesting_document_is_excluded_from_both_legs(embedded, monkeypatch):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
     embedded("")
     client = embedded.client
 
@@ -254,8 +256,7 @@ async def test_an_ingesting_document_is_excluded_from_both_legs(embedded, monkey
     assert keyword["query"]["bool"]["must_not"] == [{"terms": {"doc_id": ["doc-9"]}}]
 
 
-async def test_hybrid_with_an_empty_vector_leg_has_no_sources(embedded, monkeypatch):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
+async def test_hybrid_with_an_empty_vector_leg_has_no_sources(embedded):
     embedded("")
     client = embedded.client
     client.msearch_responses = [
@@ -266,8 +267,7 @@ async def test_hybrid_with_an_empty_vector_leg_has_no_sources(embedded, monkeypa
     assert result == {"context": "", "sources": []}
 
 
-async def test_a_failed_leg_of_a_hybrid_search_is_an_error(embedded, monkeypatch):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
+async def test_a_failed_leg_of_a_hybrid_search_is_an_error(embedded):
     embedded("")
     client = embedded.client
     client.msearch_responses = [
@@ -278,13 +278,14 @@ async def test_a_failed_leg_of_a_hybrid_search_is_an_error(embedded, monkeypatch
         await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
 
 
-async def test_rrf_puts_a_chunk_found_by_both_legs_first(embedded, monkeypatch):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
+async def test_min_max_puts_a_chunk_found_by_both_legs_first(embedded):
+    # the dense leg's scores run 0.5 to 0.9 and the keyword leg's 1 to 5, so each leg squashes
+    # "both" to 1 and the leg's other chunk to 0: "both" scores 0.5 + 0.5, and the rest 0
     embedded("")
     client = embedded.client
     client.msearch_responses = [
-        {"hits": {"hits": [hit("dense only"), hit("both")]}},
-        {"hits": {"hits": [hit("both"), hit("keyword only")]}},
+        {"hits": {"hits": [hit("dense only", 0.5), hit("both", 0.9)]}},
+        {"hits": {"hits": [hit("both", 5.0), hit("keyword only", 1.0)]}},
     ]
     result = await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
     assert [source["text"] for source in result["sources"]] == [
@@ -297,9 +298,7 @@ async def test_rrf_puts_a_chunk_found_by_both_legs_first(embedded, monkeypatch):
 async def test_min_max_with_all_weight_on_the_dense_leg_keeps_the_dense_order(
     embedded, monkeypatch
 ):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
-    monkeypatch.setenv("SHABTI_HYBRID_FUSION", "min_max")
-    monkeypatch.setenv("SHABTI_HYBRID_DENSE_WEIGHT", "1")
+    monkeypatch.setattr(opensearch_prompting, "DENSE_WEIGHT", 1)
     embedded("")
     client = embedded.client
     client.msearch_responses = [
@@ -308,10 +307,3 @@ async def test_min_max_with_all_weight_on_the_dense_leg_keeps_the_dense_order(
     ]
     result = await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
     assert [source["text"] for source in result["sources"]] == ["a", "b", "c"]
-
-
-async def test_an_unknown_retrieval_mode_is_refused(embedded, monkeypatch):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "sparse")
-    embedded("")
-    with pytest.raises(ValueError):
-        await get_context_from_opensearch("collection-1", 5, "what is a shabti?")

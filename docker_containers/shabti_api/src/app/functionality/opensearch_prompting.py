@@ -6,14 +6,28 @@ from .embeddings import (
     mean_vector,
 )
 from .embeddings_config import chunk_size, query_prefix
-from .fusion import min_max_fusion, reciprocal_rank_fusion
+from .fusion import min_max_fusion
 from .opensearch import get_client, get_document_counts, get_ingesting_document_ids
 from .opensearch_ingesting import get_splitter
-from .settings import setting, text_setting
 
 # the similarity floor a chunk has to clear to be a reference at all. this is quite a magic number,
 # tweak as needed!
 MIN_SCORE = 0.6
+
+# the dense leg's share of the fused score, the keyword leg getting the rest. min-max at an even
+# weight had the best mean nDCG@10 across the six shipped embeddings models on SciFact and NFCorpus,
+# and was never significantly worse than vector search alone
+DENSE_WEIGHT = 0.5
+
+# how many hits each leg fetches before fusion cuts the result to the reference limit. fusion needs
+# candidates from both legs, more than the answer will quote, to agree on anything
+CANDIDATES = 50
+
+# how much of a question the keyword leg is given. a match query makes one clause per term, and
+# OpenSearch refuses more than 1024. every term the standard analyser produces covers at least one
+# character of the input, so cutting the text here keeps the query under that limit in any language,
+# Japanese and Chinese included, where each character can be a term of its own
+KEYWORD_MAX_CHARS = 1000
 
 # what a hit carries back. text_hash is here because fusion keys on it, so both legs have to say
 # which chunk they found
@@ -92,7 +106,7 @@ def keyword_query(user_input: str, size: int, ingesting: list[str]) -> dict:
     # only vector children carry text, so the filter keeps the keyword leg to the same chunks the
     # dense leg can find. collapsed the same way, for the same reason
     bool_query = {
-        "must": [{"match": {"text": user_input}}],
+        "must": [{"match": {"text": user_input[:KEYWORD_MAX_CHARS]}}],
         "filter": [{"term": {"type": "vector"}}],
     }
     # same exclusion as the dense leg, and for the same reason: it has to be made in the query
@@ -110,19 +124,9 @@ def keyword_query(user_input: str, size: int, ingesting: list[str]) -> dict:
 async def get_context_from_opensearch(
     collection_id: str, reference_limit: int, user_input: str
 ):
-    # an unknown mode is a misconfiguration, and quietly falling back to dense would hide it
-    mode = text_setting("SHABTI_RETRIEVAL_MODE")
-    if mode not in ("dense", "hybrid"):
-        raise ValueError(
-            f"unknown SHABTI_RETRIEVAL_MODE {mode!r}, expected dense or hybrid"
-        )
-    # fusion needs more candidates than the answer will quote, or there is nothing for it to
-    # choose between
-    size = (
-        max(setting("SHABTI_RETRIEVAL_CANDIDATES"), reference_limit)
-        if mode == "hybrid"
-        else reference_limit
-    )
+    # a caller asking for more references than CANDIDATES still gets a full window, so the legs are
+    # never shallower than the answer
+    size = max(CANDIDATES, reference_limit)
 
     client = get_client()
 
@@ -133,70 +137,45 @@ async def get_context_from_opensearch(
         get_ingesting_document_ids(collection_id),
     )
 
-    if mode == "dense":
-        response = await client.search(
-            body=dense_query(embedding, size, ingesting), index=collection_id
-        )
-        hits = response["hits"]["hits"]
-    else:
-        # both legs go in one request so they cost one round trip between them
-        result = await client.msearch(
-            body=[
-                {"index": collection_id},
-                dense_query(embedding, size, ingesting),
-                {"index": collection_id},
-                keyword_query(user_input, size, ingesting),
-            ]
-        )
-        responses = result["responses"]
-        for response in responses:
-            # a failed leg is an error, not an empty one: an empty keyword leg would quietly
-            # answer from the vector leg alone
-            if "error" in response:
-                raise RuntimeError(response["error"])
-        dense_hits = responses[0]["hits"]["hits"]
-        keyword_hits = responses[1]["hits"]["hits"]
+    # both legs go in one request so they cost one round trip between them
+    result = await client.msearch(
+        body=[
+            {"index": collection_id},
+            dense_query(embedding, size, ingesting),
+            {"index": collection_id},
+            keyword_query(user_input, size, ingesting),
+        ]
+    )
+    responses = result["responses"]
+    for response in responses:
+        # a failed leg is an error, not an empty one: an empty keyword leg would quietly
+        # answer from the vector leg alone
+        if "error" in response:
+            raise RuntimeError(response["error"])
+    dense_hits = responses[0]["hits"]["hits"]
+    keyword_hits = responses[1]["hits"]["hits"]
 
-        # the vector leg's similarity floor is what says nothing is relevant, and nothing else
-        # judges the keyword leg's hits, so an empty vector leg means an empty answer rather than
-        # whatever the keyword leg happened to match
-        if not dense_hits:
-            return {"context": "", "sources": []}
+    # the vector leg's similarity floor is what says nothing is relevant, and nothing else
+    # judges the keyword leg's hits, so an empty vector leg means an empty answer rather than
+    # whatever the keyword leg happened to match
+    if not dense_hits:
+        return {"context": "", "sources": []}
 
-        dense_keys = [hit["_source"]["text_hash"] for hit in dense_hits]
-        keyword_keys = [hit["_source"]["text_hash"] for hit in keyword_hits]
-        fusion = text_setting("SHABTI_HYBRID_FUSION")
-        if fusion == "rrf":
-            fused = reciprocal_rank_fusion(
-                [dense_keys, keyword_keys], setting("SHABTI_RRF_K")
-            )
-        elif fusion == "min_max":
-            # the two legs are on different scales, so each is squashed to [0, 1] before its
-            # weight is applied
-            dense_weight = float(text_setting("SHABTI_HYBRID_DENSE_WEIGHT"))
-            fused = min_max_fusion(
-                [
-                    [
-                        (hit["_source"]["text_hash"], hit["_score"])
-                        for hit in dense_hits
-                    ],
-                    [
-                        (hit["_source"]["text_hash"], hit["_score"])
-                        for hit in keyword_hits
-                    ],
-                ],
-                [dense_weight, 1 - dense_weight],
-            )
-        else:
-            raise ValueError(
-                f"unknown SHABTI_HYBRID_FUSION {fusion!r}, expected rrf or min_max"
-            )
+    # the two legs are on different scales, so each is squashed to [0, 1] before its weight is
+    # applied
+    fused = min_max_fusion(
+        [
+            [(hit["_source"]["text_hash"], hit["_score"]) for hit in dense_hits],
+            [(hit["_source"]["text_hash"], hit["_score"]) for hit in keyword_hits],
+        ],
+        [DENSE_WEIGHT, 1 - DENSE_WEIGHT],
+    )
 
-        # a chunk both legs found is the dense leg's hit, which is the one the answer was always
-        # built from
-        leg_hits = {hit["_source"]["text_hash"]: hit for hit in keyword_hits}
-        leg_hits.update({hit["_source"]["text_hash"]: hit for hit in dense_hits})
-        hits = [leg_hits[key] for key, _ in fused]
+    # a chunk both legs found is the dense leg's hit, which is the one the answer was always
+    # built from
+    leg_hits = {hit["_source"]["text_hash"]: hit for hit in keyword_hits}
+    leg_hits.update({hit["_source"]["text_hash"]: hit for hit in dense_hits})
+    hits = [leg_hits[key] for key, _ in fused]
 
     hits = [hit["_source"] for hit in hits[:reference_limit]]
 
