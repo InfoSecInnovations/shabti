@@ -50,8 +50,8 @@ DEFAULTS = {
     # count of distinct references rather than of hits, and raising it costs context window as much
     # as it costs retrieval time
     "SHABTI_PROMPT_REFERENCE_LIMIT": 5,
-    # how many hits each first-stage search fetches when its results are fused or reranked, before
-    # they are cut to the reference limit. fusion needs depth from both legs to agree on anything
+    # how many hits each first-stage search fetches when its results are fused, before they are cut
+    # to the reference limit. fusion needs depth from both legs to agree on anything
     "SHABTI_RETRIEVAL_CANDIDATES": 50,
     # reciprocal rank fusion's constant: higher flattens the gap between rank 1 and rank 10, so a
     # chunk both legs rank moderately well beats one only a single leg ranks first
@@ -66,10 +66,6 @@ TEXT_DEFAULTS = {
     "SHABTI_HYBRID_FUSION": "rrf",
     # the dense leg's weight under `min_max`; the keyword leg gets the rest
     "SHABTI_HYBRID_DENSE_WEIGHT": "0.5",
-    # qualified id of a local reranker, e.g. `local/bge-reranker-v2-m3`; empty means no reranking
-    "SHABTI_RERANK_MODEL": "",
-    # reranker score a chunk must reach to be a reference; empty means no floor
-    "SHABTI_RERANK_MIN_SCORE": "",
 }
 
 

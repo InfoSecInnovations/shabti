@@ -1,9 +1,8 @@
-"""Hybrid retrieval and reranking against the real stack, with the test reranker served by llama.cpp.
+"""Hybrid retrieval against the real stack.
 
 An identifier is the case dense retrieval is weakest at: a made-up code like `QX-7731-B` embeds to
-nothing in particular, so only the keyword leg can find the chunk holding it. These tests prove that
-leg is wired in, and that llama.cpp serves the reranker through the catalogue's preset key so that
-`rerank()` works end to end.
+nothing in particular, so only the keyword leg can find the chunk holding it. This test proves that
+leg is wired in.
 
 `get_context_from_opensearch` is called directly for the same reason as in test_duplicate_documents:
 what is asserted is which references the search chose, not an answer written from them.
@@ -18,10 +17,8 @@ from ...src.app.functionality.document_collections import (
     delete_collection,
 )
 from ...src.app.functionality.opensearch_prompting import get_context_from_opensearch
-from ...src.app.functionality.rerank import rerank
 
 identifier = "QX-7731-B"
-reranker = "local/jina-reranker-v1-tiny-en"
 
 # the identifier sits inside an otherwise unrelated sentence, so nothing but its exact token links
 # the query to this chunk. the other two are on clearly different topics
@@ -72,30 +69,8 @@ async def test_hybrid_retrieval_finds_an_identifier_only_query(
     identifier_collection, monkeypatch
 ):
     monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
-    monkeypatch.setenv("SHABTI_RERANK_MODEL", "")
     context = await get_context_from_opensearch(identifier_collection, 5, identifier)
     assert context["sources"], context
     # the dense leg has nothing to offer for a bare code, so this only passes if the keyword leg
     # found the chunk and fusion kept it at the top
-    assert identifier in context["sources"][0]["text"], context["sources"][0]
-
-
-def test_llama_cpp_serves_the_reranker_through_its_preset_key():
-    scores = rerank(
-        "what colour is the sky?",
-        ["The sky is blue on a clear day.", "Bananas are yellow."],
-        reranker,
-    )
-    assert len(scores) == 2, scores
-    assert all(isinstance(score, float) for score in scores), scores
-    assert scores[0] > scores[1], scores
-
-
-async def test_hybrid_retrieval_with_a_reranker_still_finds_the_identifier(
-    identifier_collection, monkeypatch
-):
-    monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
-    monkeypatch.setenv("SHABTI_RERANK_MODEL", reranker)
-    context = await get_context_from_opensearch(identifier_collection, 5, identifier)
-    assert context["sources"], context
     assert identifier in context["sources"][0]["text"], context["sources"][0]

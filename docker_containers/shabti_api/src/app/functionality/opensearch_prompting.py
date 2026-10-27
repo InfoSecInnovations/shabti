@@ -9,7 +9,6 @@ from .embeddings_config import chunk_size, query_prefix
 from .fusion import min_max_fusion, reciprocal_rank_fusion
 from .opensearch import get_client, get_document_counts, get_ingesting_document_ids
 from .opensearch_ingesting import get_splitter
-from .rerank import rerank
 from .settings import setting, text_setting
 
 # the similarity floor a chunk has to clear to be a reference at all. this is quite a magic number,
@@ -117,12 +116,11 @@ async def get_context_from_opensearch(
         raise ValueError(
             f"unknown SHABTI_RETRIEVAL_MODE {mode!r}, expected dense or hybrid"
         )
-    rerank_model = text_setting("SHABTI_RERANK_MODEL")
-    # fusion and reranking both need more candidates than the answer will quote, or there is
-    # nothing for them to choose between
+    # fusion needs more candidates than the answer will quote, or there is nothing for it to
+    # choose between
     size = (
         max(setting("SHABTI_RETRIEVAL_CANDIDATES"), reference_limit)
-        if mode == "hybrid" or rerank_model
+        if mode == "hybrid"
         else reference_limit
     )
 
@@ -159,10 +157,10 @@ async def get_context_from_opensearch(
         dense_hits = responses[0]["hits"]["hits"]
         keyword_hits = responses[1]["hits"]["hits"]
 
-        # the vector leg's similarity floor is what says nothing is relevant. without a reranker
-        # there is nothing else to judge the keyword leg's hits by, so an empty vector leg means
-        # an empty answer rather than whatever the keyword leg happened to match
-        if not dense_hits and not rerank_model:
+        # the vector leg's similarity floor is what says nothing is relevant, and nothing else
+        # judges the keyword leg's hits, so an empty vector leg means an empty answer rather than
+        # whatever the keyword leg happened to match
+        if not dense_hits:
             return {"context": "", "sources": []}
 
         dense_keys = [hit["_source"]["text_hash"] for hit in dense_hits]
@@ -199,20 +197,6 @@ async def get_context_from_opensearch(
         leg_hits = {hit["_source"]["text_hash"]: hit for hit in keyword_hits}
         leg_hits.update({hit["_source"]["text_hash"]: hit for hit in dense_hits})
         hits = [leg_hits[key] for key, _ in fused]
-
-    if rerank_model:
-        scores = await asyncio.to_thread(
-            rerank,
-            user_input,
-            [hit["_source"]["text"] for hit in hits],
-            rerank_model,
-        )
-        # sorted is stable, so chunks the reranker scores equally keep their first-stage order
-        ranked = sorted(zip(scores, hits), key=lambda pair: pair[0], reverse=True)
-        floor = text_setting("SHABTI_RERANK_MIN_SCORE")
-        if floor:
-            ranked = [pair for pair in ranked if pair[0] >= float(floor)]
-        hits = [hit for _, hit in ranked]
 
     hits = [hit["_source"] for hit in hits[:reference_limit]]
 

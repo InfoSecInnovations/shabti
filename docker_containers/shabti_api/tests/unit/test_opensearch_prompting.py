@@ -254,9 +254,7 @@ async def test_an_ingesting_document_is_excluded_from_both_legs(embedded, monkey
     assert keyword["query"]["bool"]["must_not"] == [{"terms": {"doc_id": ["doc-9"]}}]
 
 
-async def test_hybrid_with_an_empty_vector_leg_and_no_reranker_has_no_sources(
-    embedded, monkeypatch
-):
+async def test_hybrid_with_an_empty_vector_leg_has_no_sources(embedded, monkeypatch):
     monkeypatch.setenv("SHABTI_RETRIEVAL_MODE", "hybrid")
     embedded("")
     client = embedded.client
@@ -310,44 +308,6 @@ async def test_min_max_with_all_weight_on_the_dense_leg_keeps_the_dense_order(
     ]
     result = await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
     assert [source["text"] for source in result["sources"]] == ["a", "b", "c"]
-
-
-async def test_reranking_reorders_sources_and_drops_those_below_the_floor(
-    embedded, monkeypatch
-):
-    monkeypatch.setenv("SHABTI_RERANK_MODEL", "local/reranker")
-    monkeypatch.setenv("SHABTI_RERANK_MIN_SCORE", "0.5")
-    embedded("")
-    client = embedded.client
-    client.search_hits = [hit("a"), hit("b"), hit("c")]
-    calls = []
-
-    def fake_rerank(query, documents, model_id):
-        calls.append((query, documents, model_id))
-        return [0.2, 0.9, 0.7]
-
-    monkeypatch.setattr(opensearch_prompting, "rerank", fake_rerank)
-    result = await get_context_from_opensearch("collection-1", 5, "what is a shabti?")
-    assert calls == [("what is a shabti?", ["a", "b", "c"], "local/reranker")]
-    assert [source["text"] for source in result["sources"]] == ["b", "c"]
-
-
-async def test_dense_reranking_over_fetches_and_returns_at_most_the_limit(
-    embedded, monkeypatch
-):
-    monkeypatch.setenv("SHABTI_RERANK_MODEL", "local/reranker")
-    monkeypatch.setenv("SHABTI_RETRIEVAL_CANDIDATES", "20")
-    embedded("")
-    client = embedded.client
-    client.search_hits = [hit("a"), hit("b"), hit("c")]
-    monkeypatch.setattr(
-        opensearch_prompting,
-        "rerank",
-        lambda query, documents, model_id: [0.0, 0.1, 0.2],
-    )
-    result = await get_context_from_opensearch("collection-1", 2, "what is a shabti?")
-    assert client.searches[0]["size"] == 20
-    assert [source["text"] for source in result["sources"]] == ["c", "b"]
 
 
 async def test_an_unknown_retrieval_mode_is_refused(embedded, monkeypatch):
