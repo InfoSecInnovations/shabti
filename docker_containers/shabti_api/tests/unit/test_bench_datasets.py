@@ -5,6 +5,7 @@ seed happens to pick.
 """
 
 import json
+import re
 
 import pytest
 
@@ -194,6 +195,42 @@ def test_a_bad_gateway_is_retried_with_a_growing_wait(tmp_path, monkeypatch):
 def test_nano_sets_hold_nothing_out_by_default_and_beir_sets_hold_out_50():
     assert datasets.default_holdout("nano-nfcorpus-ja") == 0
     assert datasets.default_holdout("scifact") == 50
+
+
+def test_default_holdout_is_zero_for_nano_and_custom_sets():
+    assert datasets.default_holdout("scifact") == 50
+    assert datasets.default_holdout("nano-scifact-en") == 0
+    assert datasets.default_holdout("/custom/mine") == 0
+
+
+def test_check_layout_accepts_a_folder_with_the_three_beir_files(tmp_path):
+    datasets.check_layout(write_beir(tmp_path / "mine", ["q1\td1\t1"]))
+
+
+def test_check_layout_names_the_missing_qrels_file(tmp_path):
+    root = write_beir(tmp_path / "mine", ["q1\td1\t1"])
+    (root / "qrels" / "test.tsv").unlink()
+    with pytest.raises(datasets.DatasetLayoutError, match="qrels/test.tsv"):
+        datasets.check_layout(root)
+
+
+def test_check_layout_rejects_a_path_that_is_not_a_folder(tmp_path):
+    with pytest.raises(datasets.DatasetLayoutError, match="not a folder"):
+        datasets.check_layout(tmp_path / "missing")
+
+
+def test_corpus_fingerprint_is_stable_eight_hex_characters_and_follows_the_corpus(
+    tmp_path,
+):
+    root = write_beir(tmp_path / "mine", ["q1\td1\t1"])
+    first = datasets.corpus_fingerprint(root)
+    assert first == datasets.corpus_fingerprint(root)
+    assert re.fullmatch(r"[0-9a-f]{8}", first)
+
+    (root / "corpus.jsonl").write_text(
+        '{"_id": "d9", "text": "new"}\n', encoding="utf-8"
+    )
+    assert datasets.corpus_fingerprint(root) != first
 
 
 def test_holdout_is_deterministic_for_the_same_inputs():

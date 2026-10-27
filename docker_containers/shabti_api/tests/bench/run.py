@@ -27,7 +27,18 @@ from ...src.app.functionality.document_collections import (
 from ...src.app.functionality.opensearch import close_client, get_client
 from ...src.app.functionality.opensearch_prompting import get_context_from_opensearch
 from ...src.load_dotenv import load_env
-from .datasets import NAMES, Dataset, Split, default_holdout, holdout, load
+from .datasets import (
+    NAMES,
+    Dataset,
+    DatasetLayoutError,
+    Split,
+    check_layout,
+    corpus_fingerprint,
+    default_holdout,
+    holdout,
+    load,
+    parse,
+)
 from .metrics import (
     hit_at_k,
     mean,
@@ -104,8 +115,16 @@ async def _recreate(name: str, stale_ids: list[str]) -> str:
         await close_client()
 
 
-def ensure_collection(dataset: Dataset, split: Split, client: TestClient) -> str:
-    name = f"bench-{dataset.name}"
+def collection_name(value: str) -> str:
+    if value in NAMES:
+        return f"bench-{value}"
+    # the fingerprint makes an edited corpus get indexed again, rather than reusing a stale collection
+    return f"bench-custom-{Path(value).name}-{corpus_fingerprint(Path(value))}"
+
+
+def ensure_collection(
+    dataset: Dataset, split: Split, client: TestClient, name: str
+) -> str:
     expected = len(dataset.corpus) - len(split.excluded_docs)
 
     # a collection left from an earlier run is reused when it is complete, so a rerun skips ingestion
@@ -264,7 +283,7 @@ def _limit(split: Split, count: int | None) -> Split:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m shabti.tests.bench")
-    parser.add_argument("dataset", choices=NAMES)
+    parser.add_argument("dataset", help="a built-in name, or a folder in BEIR layout")
     parser.add_argument(
         "--queries",
         type=int,
@@ -275,17 +294,34 @@ def _parser() -> argparse.ArgumentParser:
         "--holdout",
         type=int,
         default=None,
-        help="queries held out as unanswerable (default 50, or 0 for the 50-query nano sets)",
+        help="queries held out as unanswerable (default 50 for the BEIR sets, 0 otherwise)",
     )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", default="/bench_results")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="folder for results.json and report.md (default /bench_results/<stamp>-<dataset>)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
 
-    dataset = load(args.dataset)
+    if args.dataset in NAMES:
+        dataset = load(args.dataset)
+    else:
+        # checked before anything is downloaded or started, so a wrong folder fails at once
+        path = Path(args.dataset)
+        try:
+            check_layout(path)
+        except DatasetLayoutError as error:
+            message = str(error)
+            if not path.is_dir():
+                message += f" (built-in names: {', '.join(NAMES)})"
+            parser.error(message)
+        dataset = parse(path.name, path)
     size = default_holdout(args.dataset) if args.holdout is None else args.holdout
     split = _limit(holdout(dataset, size, args.seed), args.queries)
     # answerable queries first, then unanswerable, each in sorted id order
@@ -296,17 +332,22 @@ def main(argv: list[str] | None = None) -> None:
 
     load_env()
     with TestClient(create_app()) as client:
-        collection_id = ensure_collection(dataset, split, client)
+        collection_id = ensure_collection(
+            dataset, split, client, collection_name(args.dataset)
+        )
         ranked, latencies = asyncio.run(_retrieve(collection_id, queries))
 
     result = evaluate(ranked, split.answerable, split.unanswerable, latencies)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = Path(args.out) / f"{stamp}-{args.dataset}"
+    if args.out:
+        out_dir = Path(args.out)
+    else:
+        out_dir = Path("/bench_results") / f"{stamp}-{dataset.name}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    report = markdown_report(args.dataset, result)
+    report = markdown_report(dataset.name, result)
     payload = {
-        "dataset": args.dataset,
+        "dataset": dataset.name,
         "args": vars(args),
         "splits": {
             "corpus": len(dataset.corpus),

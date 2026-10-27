@@ -2,7 +2,14 @@
 
 import pytest
 
-from ..bench import run
+from ..bench import datasets, run
+
+
+def make_beir_folder(root):
+    (root / "qrels").mkdir(parents=True)
+    for name in datasets.BEIR_FILES:
+        (root / name).write_text("x", encoding="utf-8")
+    return root
 
 
 def test_evaluate_means_and_empty_shares_match_hand_computed_values():
@@ -79,3 +86,23 @@ def test_corpus_ids_takes_the_stem_of_each_source_filename_in_order():
 def test_parser_rejects_unknown_dataset_before_touching_the_network():
     with pytest.raises(SystemExit):
         run.main(["not-a-dataset"])
+
+
+def test_collection_name_prefixes_a_built_in_name():
+    assert run.collection_name("nano-scifact-en") == "bench-nano-scifact-en"
+
+
+def test_collection_name_for_a_custom_folder_ends_with_its_corpus_fingerprint(tmp_path):
+    root = make_beir_folder(tmp_path / "mine")
+    name = run.collection_name(str(root))
+    assert name.startswith("bench-custom-mine-")
+    assert name.endswith(datasets.corpus_fingerprint(root))
+
+
+def test_main_rejects_a_folder_missing_qrels_before_touching_the_stack(tmp_path):
+    root = tmp_path / "mine"
+    root.mkdir()
+    (root / "corpus.jsonl").write_text("", encoding="utf-8")
+    (root / "queries.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run.main([str(root)])

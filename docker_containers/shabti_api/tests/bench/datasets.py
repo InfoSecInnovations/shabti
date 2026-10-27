@@ -11,6 +11,7 @@ The NanoBEIR sets are 50-query samples of the same tasks, machine-translated int
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import random
 import tempfile
@@ -24,6 +25,8 @@ import requests
 
 DATA_DIR = Path(__file__).parent / "data"
 BEIR_NAMES = ("scifact", "nfcorpus")
+# what a folder needs to be read as a dataset: the corpus, the queries and the judgements
+BEIR_FILES = ("corpus.jsonl", "queries.jsonl", "qrels/test.tsv")
 URL = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{name}.zip"
 
 NANO_REPO = "LiquidAI/nanobeir-multilingual-extended"
@@ -139,8 +142,32 @@ def _download_nano(name: str, target: Path) -> None:
 
 
 def default_holdout(name: str) -> int:
-    # a 50-query set has no queries to spare: holding any out leaves too few to score
-    return 0 if name in NANO_NAMES else 50
+    # the BEIR sets are big enough to spare 50 queries, but a 50-query nano set has none to spare
+    # and a custom set may have only a handful, so holding queries out is opt-in with --holdout
+    return 50 if name in BEIR_NAMES else 0
+
+
+class DatasetLayoutError(ValueError):
+    pass
+
+
+def check_layout(path: Path) -> None:
+    if not path.is_dir():
+        raise DatasetLayoutError(f"{path} is not a folder")
+    for name in BEIR_FILES:
+        if not (path / name).is_file():
+            raise DatasetLayoutError(
+                f"{path} has no {name}, so it is not a dataset in BEIR layout"
+            )
+
+
+def corpus_fingerprint(path: Path) -> str:
+    # read in chunks so a large corpus is never held in memory
+    digest = hashlib.sha256()
+    with (path / "corpus.jsonl").open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:8]
 
 
 def _jsonl(path: Path) -> Iterator[dict]:
