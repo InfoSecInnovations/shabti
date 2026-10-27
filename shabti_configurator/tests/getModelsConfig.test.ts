@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { file } from "bun";
 import * as ini from "@std/ini";
 import getDefaultModelSelection from "../getDefaultModelSelection";
-import getModelsConfig, { getCustomModelsPath } from "../getModelsConfig";
+import getModelsConfig, {
+	getCustomModelsPath,
+	getShippedModelsConfig,
+} from "../getModelsConfig";
 import shabtiModelsFile from "../shabti_models.ini" with { type: "file" };
 import { useTempCwd } from "./mocks";
 
@@ -65,6 +68,13 @@ describe("getModelsConfig", () => {
 		);
 		expect((await getModelsConfig())[SHIPPED_DEFAULT].tags).toEqual(["chat"]);
 		expect((await getDefaultModelSelection()).defaultModel).toBe("my-model");
+	});
+
+	test("the shipped catalogue is a subset of the merged one", async () => {
+		const shipped = Object.keys(await getShippedModelsConfig());
+		const merged = Object.keys(await getModelsConfig());
+		expect(shipped).toContain("all-MiniLM-L6-v2");
+		for (const key of shipped) expect(merged).toContain(key);
 	});
 
 	test("replaces a shipped model of the same name", async () => {

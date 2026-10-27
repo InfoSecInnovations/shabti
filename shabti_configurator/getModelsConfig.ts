@@ -20,8 +20,12 @@ const parseModels = (text: string) => {
 	);
 };
 
+/** the catalogue as shipped, without the user's custom models */
+export const getShippedModelsConfig = async () =>
+	parseModels(await file(shabtiModelsFile).text());
+
 export default async () => {
-	const builtIn = parseModels(await file(shabtiModelsFile).text());
+	const builtIn = await getShippedModelsConfig();
 	const customFile = file(getCustomModelsPath());
 	const custom = (await customFile.exists())
 		? parseModels(await customFile.text())

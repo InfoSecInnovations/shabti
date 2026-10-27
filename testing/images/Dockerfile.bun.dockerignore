@@ -17,6 +17,7 @@ pyvenv.cfg
 **/dist
 testing/test_results
 testing/processed_test_runs
+testing/bench_results
 testing/self_signed_certificates
 shabti_configurator/assets/docker_compose.zip
 shabti_configurator/assets/index.js

@@ -74,6 +74,14 @@ export const SUITES: Suite[] = [
 		blurb: "the dependency pin auditor, with every registry stubbed",
 	},
 	{
+		id: "bench",
+		testTypes: ["unit"],
+		service: "bun-tests",
+		runner: "bun",
+		target: () => "testing/tests",
+		blurb: "the benchmark's run planning and summary table",
+	},
+	{
 		id: "configurator",
 		testTypes: ["unit"],
 		service: "bun-tests",
