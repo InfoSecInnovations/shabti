@@ -67,31 +67,41 @@ docker exec <container> /app/shabti/.venv/bin/python -m asyncio pstree 11
 ## Benchmark
 
 ```
-bun run bench scifact                                     # the defaults
-bun run bench nfcorpus --embeddings-model bge-m3 --chunk-size 256 -- --queries 200
+bun run bench                                        # every shipped embeddings model, the defaults below
+bun run bench --models my-model --chunk-sizes 256    # one candidate model from custom_models.ini
+bun run bench --datasets ./my-dataset                # your own folder of BEIR files
 ```
 
-The dataset is `scifact` or `nfcorpus`, or a multilingual 50-query NanoBEIR version of either, such as
-`nano-scifact-fr` or `nano-nfcorpus-de` (languages: ar, de, en, es, fr, it, ja, ko, no, pt, sv). Nano runs
-hold no queries out as unanswerable. Everything after `--` goes to `python -m shabti.tests.bench`. The
-options are:
+The default runs every shipped embeddings model at chunk sizes 128, 256 and 512 against six multilingual
+NanoBEIR datasets, then prints one table of nDCG@10. A folder dataset needs `corpus.jsonl`,
+`queries.jsonl` and `qrels/test.tsv`. Anything after `--` goes to `python -m shabti.tests.bench`.
 
-| flag | |
+| option | |
 |---|---|
-| `--embeddings-model <name>` | the local embeddings model (default `all-MiniLM-L6-v2`) |
-| `--chunk-size <n>` | tokens per chunk (default 128) |
-| `--fresh` | drop this bench stack's OpenSearch data before indexing |
-| `--keep-up` | leave the stack running afterwards |
+| `--models <names...>` | embeddings models from the catalogue, including your own in `custom_models.ini` |
+| `--chunk-sizes <n...>` | tokens per chunk (default `128 256 512`) |
+| `--datasets <names-or-paths...>` | built-in datasets, such as `nano-scifact-fr`, or BEIR folders |
+| `--compute <cpu\|cuda>` | where llama.cpp runs (default `cuda`) |
+| `--rerun` | ignore cached results |
+| `--fresh` | drop each stack's OpenSearch data before indexing; implies `--rerun` |
+| `--keep-up` | leave the last stack running afterwards |
 
-Each embeddings model and chunk size gets its own OpenSearch volume, so a rerun with the same settings
-reuses the indexed data. The models the tests downloaded are reused too.
+Results are cached under `testing/bench_results/`:
+
+- `runs/<model>-<chunk>/<dataset>/` holds `results.json`, `report.md` and `meta.json`. A run is reused only
+  when its `meta.json` matches the model's settings, chunk size, dataset and extra arguments.
+- `stacks/` records the settings each stack was indexed with.
+- `summary.md` is the last table.
+
+Each model and chunk size keeps its own OpenSearch volume, so a rerun with the same settings reuses the
+indexed data. Changing a model's settings drops its volume and reindexes. The models the tests downloaded
+are reused too.
 
 The bench and test stacks share container names and a network, so they can't be up at the same time.
-A bench run takes the test stack down before it starts. A bench stack left up with `--keep-up` has to be
-taken down with `docker compose -p shabti-bench-<slug> down` before `bun run test`.
+A bench run takes the test stack down before it starts. A stack left up with `--keep-up` has to be taken
+down with `docker compose -p shabti-bench-<slug> down` before `bun run test`.
 
-The report lands in `testing/bench_results/<stamp>-<dataset>/report.md`, apart from `test_results/`, which
-`bun run test` wipes on every run.
+What the numbers mean is in [`../docs/user/EMBEDDINGS.md`](../docs/user/EMBEDDINGS.md).
 
 ## Where things are
 
@@ -106,6 +116,8 @@ The report lands in `testing/bench_results/<stamp>-<dataset>/report.md`, apart f
 | `images/Dockerfile.bun` | the container every bun suite runs in |
 | `test_results/` | per-suite JUnit XML from the last run |
 | `processed_test_runs/` | one merged XML per run, kept as history |
+| `bench.ts` | the `bun run bench` CLI: validation, the stack per model and chunk size, the summary table |
+| `benchMatrix.ts` | the bench's run planning, caching, dataset resolution and summary table |
 
 Test types are assembled by layering compose files, which is what keeps the unit ones cheap:
 
