@@ -40,6 +40,7 @@ from shabti_types import (
     DocumentList,
 )
 from ..shabti_logging import log_user_action, logging_enabled
+from contextlib import suppress
 import aiofiles.os
 import logging
 import os
@@ -198,7 +199,11 @@ async def delete_collection(token, collection_id):
             "could not reset the embeddings fingerprint"
         )
     for file_path in file_paths:
-        await aiofiles.os.remove(os.path.join(os.getenv("SHABTI_FILES_DIR"), file_path))
+        # a file that is already gone has nothing left to tidy, and the collection itself is deleted by now
+        with suppress(FileNotFoundError):
+            await aiofiles.os.remove(
+                os.path.join(os.getenv("SHABTI_FILES_DIR"), file_path)
+            )
     print(f"deleted collection with ID {collection_id}")
     await log_user_action(
         token,
