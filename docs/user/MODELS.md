@@ -32,7 +32,11 @@ tags = embeddings, default
 shabti_query_prefix = "task: search result | query: " 
 ; only include this for embeddings models which require a prefix when ingesting
 shabti_document_prefix = "title: none | text: " 
+; optional, for embeddings models: tokens per chunk (default 128)
+shabti_chunk_size = 256
 ```
+
+For choosing an embeddings model, chunk sizes and benchmarking your own, see [EMBEDDINGS.md](EMBEDDINGS.md).
 
 The prefix requirements are very variable for each embeddings model, some of them don't use prefixes at all, some only on the query or document. Some such as Gemma above can use custom prompts to match the purpose of the embedding more exactly. In future editions of Shabti we aim to experiment with letting different Shabti tasks insert a custom prompt for models which allow it. 
 
