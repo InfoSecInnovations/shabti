@@ -74,6 +74,128 @@ def test_download_rejects_an_unknown_dataset_name(tmp_path):
         datasets.download("msmarco", tmp_path)
 
 
+class FakeRows:
+    """The dataset viewer's rows endpoint over in-memory tables, paged as the real one is."""
+
+    def __init__(self, tables, throttled=0, status=429):
+        self.tables = tables
+        self.throttled = throttled
+        self.status = status
+        self.calls = []
+
+    def __call__(self, url, params, timeout):
+        assert url == datasets.ROWS_URL
+        assert params["dataset"] == datasets.NANO_REPO
+        self.calls.append((params["config"], params["split"], params["offset"]))
+        throttle = self.throttled > 0
+        self.throttled -= 1
+        status = self.status
+        rows = self.tables[(params["config"], params["split"])]
+        page = rows[params["offset"] : params["offset"] + params["length"]]
+        payload = {"rows": [{"row": row} for row in page], "num_rows_total": len(rows)}
+
+        class Response:
+            status_code = status if throttle else 200
+            headers = {"Retry-After": "3"} if throttle and status == 429 else {}
+
+            def raise_for_status(self):
+                if throttle:
+                    raise datasets.requests.HTTPError(str(status))
+
+            def json(self):
+                return payload
+
+        return Response()
+
+
+def test_download_nano_pages_through_the_viewer_into_a_parseable_beir_layout(
+    tmp_path, monkeypatch
+):
+    corpus = [{"_id": f"d{i}", "text": f"texte {i}"} for i in range(5)]
+    fake = FakeRows(
+        {
+            ("NanoSciFact_fr", "corpus"): corpus,
+            ("NanoSciFact_fr", "queries"): [{"_id": "q1", "text": "question ?"}],
+            ("NanoSciFact_fr_qrels", "qrels"): [
+                {"query-id": "q1", "corpus-id": "d3"},
+                {"query-id": "q1", "corpus-id": "d4"},
+            ],
+        }
+    )
+    monkeypatch.setattr(datasets.requests, "get", fake)
+    monkeypatch.setattr(datasets, "ROWS_PAGE", 2)
+
+    dataset = datasets.load("nano-scifact-fr", tmp_path)
+
+    # five corpus rows at two a page is three requests
+    assert [c for c in fake.calls if c[1] == "corpus"] == [
+        ("NanoSciFact_fr", "corpus", 0),
+        ("NanoSciFact_fr", "corpus", 2),
+        ("NanoSciFact_fr", "corpus", 4),
+    ]
+    assert dataset.corpus["d2"] == Doc(title="", text="texte 2")
+    assert len(dataset.corpus) == 5
+    assert dataset.queries == {"q1": "question ?"}
+    # the judgements are ungraded, so every listed pair is relevant at grade 1
+    assert dataset.qrels == {"q1": {"d3": 1, "d4": 1}}
+
+
+def test_a_failed_nano_download_leaves_nothing_that_looks_cached(tmp_path, monkeypatch):
+    fake = FakeRows({("NanoNFCorpus_de", "corpus"): [{"_id": "d1", "text": "x"}]})
+    monkeypatch.setattr(datasets.requests, "get", fake)
+
+    # the queries table is missing, so the download fails part way through
+    with pytest.raises(KeyError):
+        datasets.download("nano-nfcorpus-de", tmp_path)
+    assert not (tmp_path / "nano-nfcorpus-de" / "corpus.jsonl").exists()
+
+
+def test_a_throttled_page_is_retried_after_the_wait_the_viewer_asks_for(
+    tmp_path, monkeypatch
+):
+    fake = FakeRows(
+        {
+            ("NanoSciFact_en", "corpus"): [{"_id": "d1", "text": "x"}],
+            ("NanoSciFact_en", "queries"): [{"_id": "q1", "text": "q"}],
+            ("NanoSciFact_en_qrels", "qrels"): [{"query-id": "q1", "corpus-id": "d1"}],
+        },
+        throttled=2,
+    )
+    sleeps = []
+    monkeypatch.setattr(datasets.requests, "get", fake)
+    monkeypatch.setattr(datasets.time, "sleep", sleeps.append)
+
+    dataset = datasets.load("nano-scifact-en", tmp_path)
+
+    assert sleeps == [3.0, 3.0]
+    assert dataset.qrels == {"q1": {"d1": 1}}
+
+
+def test_a_bad_gateway_is_retried_with_a_growing_wait(tmp_path, monkeypatch):
+    fake = FakeRows(
+        {
+            ("NanoSciFact_en", "corpus"): [{"_id": "d1", "text": "x"}],
+            ("NanoSciFact_en", "queries"): [{"_id": "q1", "text": "q"}],
+            ("NanoSciFact_en_qrels", "qrels"): [{"query-id": "q1", "corpus-id": "d1"}],
+        },
+        throttled=2,
+        status=502,
+    )
+    sleeps = []
+    monkeypatch.setattr(datasets.requests, "get", fake)
+    monkeypatch.setattr(datasets.time, "sleep", sleeps.append)
+
+    dataset = datasets.load("nano-scifact-en", tmp_path)
+
+    assert sleeps == [1.0, 2.0]
+    assert dataset.qrels == {"q1": {"d1": 1}}
+
+
+def test_nano_sets_hold_nothing_out_by_default_and_beir_sets_hold_out_50():
+    assert datasets.default_holdout("nano-nfcorpus-ja") == 0
+    assert datasets.default_holdout("scifact") == 50
+
+
 def test_holdout_is_deterministic_for_the_same_inputs():
     dataset = make_dataset({f"q{i}": {f"d{i}": 1} for i in range(20)})
     assert datasets.holdout(dataset, size=5, seed=3) == datasets.holdout(

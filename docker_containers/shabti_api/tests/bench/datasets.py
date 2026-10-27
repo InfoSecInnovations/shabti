@@ -1,7 +1,11 @@
-"""BEIR SciFact and NFCorpus, plus a holdout of queries left unanswerable by construction.
+"""BEIR SciFact and NFCorpus, their multilingual NanoBEIR versions, and a holdout of queries left
+unanswerable by construction.
 
 The holdout's relevant docs are kept out of the ingested corpus, so those queries have no
 gold answer in the index and any answer the system gives to them is a hallucination.
+
+The NanoBEIR sets are 50-query samples of the same tasks, machine-translated into each language, so a
+`nano-scifact-en` run is the bridge between the full English set and the other languages.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ import csv
 import json
 import random
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,8 +23,23 @@ from typing import Iterator
 import requests
 
 DATA_DIR = Path(__file__).parent / "data"
-NAMES = ("scifact", "nfcorpus")
+BEIR_NAMES = ("scifact", "nfcorpus")
 URL = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{name}.zip"
+
+NANO_REPO = "LiquidAI/nanobeir-multilingual-extended"
+NANO_TASKS = {"scifact": "NanoSciFact", "nfcorpus": "NanoNFCorpus"}
+NANO_LANGUAGES = ("ar", "de", "en", "es", "fr", "it", "ja", "ko", "no", "pt", "sv")
+NANO_NAMES = tuple(
+    f"nano-{task}-{language}" for task in NANO_TASKS for language in NANO_LANGUAGES
+)
+# the dataset viewer serves the repo's parquet files as JSON, so no parquet reader is needed
+ROWS_URL = "https://datasets-server.huggingface.co/rows"
+# the most rows the viewer returns per request
+ROWS_PAGE = 100
+# the viewer rate limits anonymous clients, a corpus is about 30 pages, and it has the odd bad gateway
+ROWS_RETRIES = 8
+
+NAMES = BEIR_NAMES + NANO_NAMES
 
 
 @dataclass
@@ -52,6 +72,9 @@ def download(name: str, data_dir: Path = DATA_DIR) -> Path:
         return target
 
     data_dir.mkdir(parents=True, exist_ok=True)
+    if name in NANO_NAMES:
+        _download_nano(name, target)
+        return target
     # stream to disk so the zip is never held in memory
     with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
         archive = Path(tmp) / f"{name}.zip"
@@ -63,6 +86,61 @@ def download(name: str, data_dir: Path = DATA_DIR) -> Path:
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(data_dir)
     return target
+
+
+def _rows(config: str, split: str) -> Iterator[dict]:
+    offset = 0
+    while True:
+        params = {
+            "dataset": NANO_REPO,
+            "config": config,
+            "split": split,
+            "offset": offset,
+            "length": ROWS_PAGE,
+        }
+        for attempt in range(ROWS_RETRIES):
+            response = requests.get(ROWS_URL, params=params, timeout=120)
+            if response.status_code != 429 and response.status_code < 500:
+                break
+            time.sleep(float(response.headers.get("Retry-After", 2**attempt)))
+        response.raise_for_status()
+        payload = response.json()
+        for item in payload["rows"]:
+            yield item["row"]
+        offset += len(payload["rows"])
+        if not payload["rows"] or offset >= payload["num_rows_total"]:
+            return
+
+
+def _download_nano(name: str, target: Path) -> None:
+    _, task, language = name.split("-")
+    config = f"{NANO_TASKS[task]}_{language}"
+    # written in BEIR's layout so parse reads it like any other dataset, into a temp dir first so
+    # an interrupted download leaves no corpus.jsonl behind to be mistaken for a complete one
+    with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
+        staged = Path(tmp) / name
+        (staged / "qrels").mkdir(parents=True)
+        with (staged / "corpus.jsonl").open("w", encoding="utf-8") as f:
+            for row in _rows(config, "corpus"):
+                # the translations carry no title, only the text
+                f.write(json.dumps({"_id": row["_id"], "text": row["text"]}) + "\n")
+        with (staged / "queries.jsonl").open("w", encoding="utf-8") as f:
+            for row in _rows(config, "queries"):
+                f.write(json.dumps({"_id": row["_id"], "text": row["text"]}) + "\n")
+        with (staged / "qrels" / "test.tsv").open(
+            "w", encoding="utf-8", newline=""
+        ) as f:
+            writer = csv.writer(f, delimiter="\t")
+            writer.writerow(["query-id", "corpus-id", "score"])
+            # the judgements are ungraded: a listed pair is relevant
+            for row in _rows(f"{config}_qrels", "qrels"):
+                writer.writerow([row["query-id"], row["corpus-id"], 1])
+        staged.rename(target)
+
+
+def default_holdout(name: str) -> int:
+    # a 50-query set has no queries to spare: holding any out leaves too few to score
+    return 0 if name in NANO_NAMES else 50
 
 
 def _jsonl(path: Path) -> Iterator[dict]:

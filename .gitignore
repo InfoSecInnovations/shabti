@@ -5,6 +5,8 @@ testing/env/.generated.env
 shabti_log.json
 shabti_logs/
 test_results/
+# bench reports, kept apart from test_results/, which every test run wipes
+bench_results/
 processed_test_runs/
 shabti_config/
 # the provider keys and the instance salt

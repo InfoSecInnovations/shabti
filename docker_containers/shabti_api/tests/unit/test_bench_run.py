@@ -25,6 +25,16 @@ def test_evaluate_means_and_empty_shares_match_hand_computed_values():
     assert result["p50_ms"] == pytest.approx(25.0)
 
 
+def test_nothing_held_out_reports_no_empty_share_rather_than_zero():
+    result = run.evaluate({"q1": ["a"]}, {"q1": {"a": 1}}, [], {"q1": 10.0})
+    assert result["empty_unanswerable"] is None
+
+    report = run.markdown_report("nano-scifact-fr", {"B0": result})
+    row = next(line for line in report.splitlines() if line.startswith("| B0 |"))
+    # the baseline's delta column and the unanswerable column are both a dash
+    assert row.count("—") == 2
+
+
 def test_markdown_report_lists_every_variant_and_a_p_value_for_non_baseline_rows():
     def summary(ndcg: list[float]) -> dict:
         return {

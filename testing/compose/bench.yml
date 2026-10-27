@@ -1,6 +1,12 @@
 # Layered over the security-disabled stack for `bun run bench`. Only the llama.cpp models are pinned:
 # the test stack has already downloaded them, and a bench project would otherwise fetch every GGUF
 # again under its own name. Everything else, including OpenSearch, is per bench project.
+services:
+  # reports go in a folder of their own: the test runner wipes test_results/ on every run
+  pytest-api:
+    volumes:
+      - ../bench_results:/bench_results/
+
 volumes:
   llama-cpp-models:
     name: shabti_llama-cpp-models

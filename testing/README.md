@@ -71,7 +71,10 @@ bun run bench scifact                                     # the defaults
 bun run bench nfcorpus --embeddings-model bge-m3 --chunk-size 256 -- --queries 200
 ```
 
-The dataset is `scifact` or `nfcorpus`. Everything after `--` goes to `python -m shabti.tests.bench`. The options are:
+The dataset is `scifact` or `nfcorpus`, or a multilingual 50-query NanoBEIR version of either, such as
+`nano-scifact-fr` or `nano-nfcorpus-de` (languages: ar, de, en, es, fr, it, ja, ko, no, pt, sv). Nano runs
+hold no queries out as unanswerable. Everything after `--` goes to `python -m shabti.tests.bench`. The
+options are:
 
 | flag | |
 |---|---|
@@ -88,7 +91,8 @@ The bench and test stacks share container names and a network, so they can't be 
 A bench run takes the test stack down before it starts. A bench stack left up with `--keep-up` has to be
 taken down with `docker compose -p shabti-bench-<slug> down` before `bun run test`.
 
-The report lands in `testing/test_results/bench/<stamp>-<dataset>/report.md`.
+The report lands in `testing/bench_results/<stamp>-<dataset>/report.md`, apart from `test_results/`, which
+`bun run test` wipes on every run.
 
 ## Where things are
 

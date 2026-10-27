@@ -36,7 +36,7 @@ from ...src.app.functionality.opensearch_prompting import (
     keyword_query,
 )
 from ...src.load_dotenv import load_env
-from .datasets import NAMES, Dataset, Split, holdout, load
+from .datasets import NAMES, Dataset, Split, default_holdout, holdout, load
 from .metrics import (
     hit_at_k,
     mean,
@@ -404,9 +404,12 @@ def evaluate(
         "ndcg@10": mean(per_query["ndcg@10"]),
         "mrr@10": mean(per_query["mrr@10"]),
         "per_query": per_query,
+        # None rather than 0 when nothing was held out, so the report cannot pass it off as a result
         "empty_unanswerable": mean(
             [1.0 if not run.get(query_id) else 0.0 for query_id in unanswerable]
-        ),
+        )
+        if unanswerable
+        else None,
         "empty_answerable": mean(
             [1.0 if not run.get(query_id) else 0.0 for query_id in query_ids]
         ),
@@ -449,7 +452,9 @@ def markdown_report(
                     f"{result['ndcg@10']:.3f}",
                     f"{result['mrr@10']:.3f}",
                     delta,
-                    f"{result['empty_unanswerable'] * 100:.1f}%",
+                    "—"
+                    if result["empty_unanswerable"] is None
+                    else f"{result['empty_unanswerable'] * 100:.1f}%",
                     f"{result['empty_answerable'] * 100:.1f}%",
                     f"{result['p50_ms']:.0f}",
                     f"{result['p95_ms']:.0f}",
@@ -490,9 +495,14 @@ def _parser() -> argparse.ArgumentParser:
         default=100,
         help="candidates per leg for the offline fusion sweep, 0 disables it",
     )
-    parser.add_argument("--holdout", type=int, default=50)
+    parser.add_argument(
+        "--holdout",
+        type=int,
+        default=None,
+        help="queries held out as unanswerable (default 50, or 0 for the 50-query nano sets)",
+    )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", default="/test_results/bench")
+    parser.add_argument("--out", default="/bench_results")
     return parser
 
 
@@ -501,7 +511,8 @@ def main(argv: list[str] | None = None) -> None:
     variant_ids = [v for v in VARIANTS if not args.variants or v in args.variants]
 
     dataset = load(args.dataset)
-    split = _limit(holdout(dataset, args.holdout, args.seed), args.queries)
+    size = default_holdout(args.dataset) if args.holdout is None else args.holdout
+    split = _limit(holdout(dataset, size, args.seed), args.queries)
     # answerable queries first, then unanswerable, each in sorted id order
     queries = {
         query_id: dataset.queries[query_id]
