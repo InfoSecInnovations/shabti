@@ -80,7 +80,6 @@ options are:
 |---|---|
 | `--embeddings-model <name>` | the local embeddings model (default `all-MiniLM-L6-v2`) |
 | `--chunk-size <n>` | tokens per chunk (default 128) |
-| `--rerankers <names...>` | the local rerankers to compare (default all three in the catalogue) |
 | `--fresh` | drop this bench stack's OpenSearch data before indexing |
 | `--keep-up` | leave the stack running afterwards |
 

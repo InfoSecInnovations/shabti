@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import getDefaultModelSelection, {
-	localModels,
 	type ModelSelection,
 } from "../getDefaultModelSelection";
 import getModelsConfig from "../getModelsConfig";
@@ -34,15 +33,6 @@ const EMBED = {
 	hf: "someone/embed-gguf:Q4_K_M",
 	tags: "embeddings",
 	shabti_chunk_size: "128",
-};
-const RERANK = {
-	hf: "someone/rerank-gguf:Q8_0",
-	tags: "rerank",
-	reranking: "true",
-	pooling: "rank",
-	"ctx-size": "4096",
-	"ubatch-size": "2048",
-	"batch-size": "2048",
 };
 const SELECTION = {
 	chatModels: ["chat"],
@@ -120,25 +110,6 @@ describe("the preset sections llama.cpp reads", () => {
 			embed: { ...EMBED, shabti_chunk_size: "512", "ubatch-size": "1024" },
 		});
 		expect(sections.embed["ubatch-size"]).toBe("1024");
-	});
-});
-
-describe("a reranker a selection adds", () => {
-	test("gets its own preset section with its tags and reranking on", () => {
-		const { sections } = build(
-			{ chat: CHAT, embed: EMBED, rerank: RERANK },
-			{ ...SELECTION, rerankModels: ["rerank"] },
-		);
-		// without reranking and pooling llama.cpp would serve it as an embeddings model
-		expect(sections.rerank).toEqual(RERANK);
-	});
-
-	test("is among the models llama.cpp has to serve", () => {
-		expect(localModels({ ...SELECTION, rerankModels: ["rerank"] })).toEqual([
-			"chat",
-			"embed",
-			"rerank",
-		]);
 	});
 });
 

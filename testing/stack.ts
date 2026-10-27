@@ -134,7 +134,6 @@ const TEST_MODELS: ModelSelection = {
 	chatModels: ["MiniCPM5-2B", "Granite-4.2-3B"],
 	embeddingsModel: "all-MiniLM-L6-v2",
 	defaultModel: "MiniCPM5-2B",
-	rerankModels: ["jina-reranker-v1-tiny-en"],
 };
 
 /**

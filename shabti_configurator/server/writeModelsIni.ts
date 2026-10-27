@@ -80,8 +80,6 @@ const SHABTI_KEYS: Record<string, (raw: string, where: string) => unknown> = {
 
 // which llama.cpp options a catalogue entry is allowed to set, checked so that a typo is reported
 // here, by the installer, rather than as a container that won't come up
-// reranking and pooling are what make a reranker a reranker to llama.cpp, rather than an embeddings
-// model that returns a vector per input
 const PRESET_KEYS = [
 	"hf",
 	"tags",
@@ -89,8 +87,6 @@ const PRESET_KEYS = [
 	"ubatch-size",
 	"batch-size",
 	"n-gpu-layers",
-	"reranking",
-	"pooling",
 ];
 
 // the batch sizes everything runs with unless a model asks for more. deliberately small: they were

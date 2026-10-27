@@ -14,17 +14,10 @@ const REPO = path.join(import.meta.dir, "..");
 // the same embeddings model the test stack uses, so a bench with no flags is comparable to it
 const DEFAULT_EMBEDDINGS = "all-MiniLM-L6-v2";
 const DEFAULT_CHUNK_SIZE = 128;
-// every reranker in the catalogue, so the benchmark compares them all by default
-const DEFAULT_RERANKERS = [
-	"jina-reranker-v1-tiny-en",
-	"bge-reranker-v2-m3",
-	"Qwen3-Reranker-0.6B",
-];
 
 interface BenchOptions {
 	embeddingsModel: string;
 	chunkSize: number;
-	rerankers: string[];
 	fresh?: boolean;
 	keepUp?: boolean;
 }
@@ -142,8 +135,8 @@ const benchmark = async (
 const program = new Command()
 	.name("bench")
 	.description(
-		"Benchmarks a dataset against one embeddings model, chunk size and set of rerankers, in a " +
-			"stack of its own. Anything after -- goes to python -m shabti.tests.bench.\n\n" +
+		"Benchmarks a dataset against one embeddings model and chunk size, in a stack of its own. " +
+			"Anything after -- goes to python -m shabti.tests.bench.\n\n" +
 			"The test stack and a bench stack cannot be up at the same time, so a bench run takes the " +
 			"test stack down first.",
 	)
@@ -162,11 +155,6 @@ const program = new Command()
 		"tokens per chunk",
 		(value) => Number(value),
 		DEFAULT_CHUNK_SIZE,
-	)
-	.option(
-		"--rerankers <names...>",
-		"the local rerankers to compare",
-		DEFAULT_RERANKERS,
 	)
 	.option("--fresh", "drop this bench stack's OpenSearch data first")
 	.option("--keep-up", "leave the bench stack running afterwards")
@@ -187,7 +175,6 @@ const program = new Command()
 				chatModels: [],
 				embeddingsModel: opts.embeddingsModel,
 				embeddingsChunkSize: opts.chunkSize,
-				rerankModels: opts.rerankers,
 			};
 			const project = `shabti-bench-${slugOf(`${opts.embeddingsModel}-${opts.chunkSize}`)}`;
 
