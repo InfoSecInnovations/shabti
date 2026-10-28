@@ -82,33 +82,3 @@ def test_percentile_interpolates_linearly_between_closest_ranks():
 
 def test_percentile_of_empty_input_is_zero():
     assert metrics.percentile([], 50) == 0.0
-
-
-def test_paired_test_gives_p_of_one_for_identical_runs():
-    run = [0.5, 0.2, 0.9, 0.1]
-    assert metrics.paired_randomization_test(run, list(run)) == 1.0
-
-
-def test_paired_test_gives_p_of_one_for_empty_runs():
-    assert metrics.paired_randomization_test([], []) == 1.0
-
-
-def test_paired_test_gives_significant_p_when_one_run_wins_every_one_of_30_pairs():
-    better = [0.1 * (i + 1) for i in range(30)]
-    worse = [0.0] * 30
-    # only the all-positive and all-negative sign patterns reach the observed mean,
-    # so the p-value is about 1 / (trials + 1)
-    assert metrics.paired_randomization_test(better, worse) < 0.01
-
-
-def test_paired_test_is_deterministic_for_the_same_seed():
-    a = [0.9, 0.4, 0.7, 0.2, 0.6]
-    b = [0.8, 0.5, 0.3, 0.2, 0.5]
-    assert metrics.paired_randomization_test(a, b, seed=7) == (
-        metrics.paired_randomization_test(a, b, seed=7)
-    )
-
-
-def test_paired_test_rejects_runs_of_different_lengths():
-    with pytest.raises(ValueError):
-        metrics.paired_randomization_test([1.0, 2.0], [1.0])

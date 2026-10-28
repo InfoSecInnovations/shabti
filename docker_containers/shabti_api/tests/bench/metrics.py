@@ -1,4 +1,4 @@
-"""Standard IR metrics over ranked lists of document ids, plus a paired significance test.
+"""Standard IR metrics over ranked lists of document ids.
 
 Pure standard library on purpose: the benchmark only needs a handful of metrics, and a
 third-party evaluation package is not worth the dependency.
@@ -7,7 +7,6 @@ third-party evaluation package is not worth the dependency.
 from __future__ import annotations
 
 import math
-import random
 
 
 def dedupe(ranked: list[str]) -> list[str]:
@@ -75,28 +74,3 @@ def percentile(values: list[float], p: float) -> float:
     lower = math.floor(position)
     upper = math.ceil(position)
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
-
-
-def paired_randomization_test(
-    a: list[float], b: list[float], trials: int = 10000, seed: int = 0
-) -> float:
-    if len(a) != len(b):
-        raise ValueError(
-            f"paired runs must have equal length, got {len(a)} and {len(b)}"
-        )
-    diffs = [x - y for x, y in zip(a, b)]
-    if not diffs or all(d == 0 for d in diffs):
-        return 1.0
-
-    observed = abs(mean(diffs))
-    rng = random.Random(seed)
-    # under the null hypothesis each pair's sign is arbitrary, so flipping signs at random
-    # builds the distribution of the mean difference we would see if the runs were equivalent
-    at_least_as_extreme = 0
-    for _ in range(trials):
-        flipped = [d if rng.random() < 0.5 else -d for d in diffs]
-        # the small tolerance stops floating point noise from hiding a tie with the observed mean
-        if abs(mean(flipped)) >= observed - 1e-12:
-            at_least_as_extreme += 1
-    # the +1 on both sides keeps the p-value from ever being exactly zero
-    return (at_least_as_extreme + 1) / (trials + 1)
