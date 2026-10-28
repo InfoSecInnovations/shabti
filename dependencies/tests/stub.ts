@@ -12,6 +12,8 @@ export type Answer = {
 	status?: number;
 	headers?: Record<string, string>;
 	body?: unknown;
+	/** sent as is, for a plain text answer that body would quote */
+	text?: string;
 };
 
 export type Route = [
@@ -36,7 +38,8 @@ export const httpStub = (routes: Route[]) => {
 		const answer =
 			typeof route[1] === "function" ? route[1](url, init) : route[1];
 		return new Response(
-			answer.body === undefined ? null : JSON.stringify(answer.body),
+			answer.text ??
+				(answer.body === undefined ? null : JSON.stringify(answer.body)),
 			{ status: answer.status ?? 200, headers: answer.headers },
 		);
 	}) as unknown as typeof fetch);

@@ -152,6 +152,13 @@ tags. `apache/tika` is why: pinned at `3.3.0.0-full`, the labelled tags alone ma
 like the answer, because `4.0.0-full` has three release segments where the pin has four. Asking what
 the newest plain version is gives `4.0.0`, and `4.0.0-full` exists.
 
+`ghcr.io/ggml-org/llama.cpp` publishes an image for every build but marks its stable releases only on
+GitHub, as `vX.Y.Z` tags whose `nightly-tag.txt` asset names the build they were cut from. Its pin stays
+a build, and only those builds count as stable: every other build is listed under `prerelease
+available`, and `bun run deps:set -- ghcr.io/ggml-org/llama.cpp` moves to the newest stable. A release
+whose image is not published yet is skipped with a note. Other images tagged this way are added to
+`STABLE_RELEASES` in [dependencies/registries/github.ts](../../dependencies/registries/github.ts).
+
 `astral/uv` is pinned in four files — three Dockerfile `FROM` lines and
 [docker-compose-uv-lock.yml](../../docker_containers/docker-compose-uv-lock.yml). One `deps:set`
 changes all four, which is why Dockerfiles are in scope at all: that invariant used to be held

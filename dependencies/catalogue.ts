@@ -9,6 +9,11 @@
  */
 
 import { type Client, type Options, client } from "./http";
+import {
+	STABLE_RELEASES,
+	stableBuilds,
+	withStableReleases,
+} from "./registries/github";
 import { npmCatalogue } from "./registries/npm";
 import { ociCatalogue } from "./registries/oci";
 import { pypiCatalogue } from "./registries/pypi";
@@ -69,7 +74,16 @@ export const registry =
 						throw new Error(
 							`${image.tag} names no version, so nothing compares`,
 						);
-					const catalogue = await ociCatalogue(image, shape, deps, options);
+					const published = await ociCatalogue(image, shape, deps, options);
+					const repo = STABLE_RELEASES[dependency.id];
+					const catalogue =
+						repo && shape.slot === "build"
+							? withStableReleases(
+									published,
+									await stableBuilds(repo, deps),
+									shape,
+								)
+							: published;
 					return image.tag
 						? catalogue
 						: {

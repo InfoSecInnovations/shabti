@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { verdict } from "../catalogue";
+import { registry, verdict } from "../catalogue";
 import { client } from "../http";
 import { npmCatalogue } from "../registries/npm";
 import { ociCatalogue, target } from "../registries/oci";
@@ -537,5 +537,157 @@ describe("verdict against a catalogue a registry built", () => {
 		);
 		expect(result.behind).toBe(true);
 		expect(result.behindBy).toBe(2);
+	});
+});
+
+/**
+ * llama.cpp publishes an image per build and marks which builds are stable only on GitHub. Driven through
+ * registry(), since that is where an image is matched to the repository its releases come from.
+ */
+describe("stable releases of an image tagged by build", () => {
+	const pinnedAt = (repository: string, tag: string): Dependency => {
+		const id = `ghcr.io/${repository}`;
+		const version = tag.replace(/^.*-/, "");
+		const image = { registry: "ghcr.io", repository, tag, digest: null };
+		return {
+			id,
+			ecosystem: "docker",
+			name: id,
+			occurrences: [
+				{
+					name: id,
+					id,
+					ecosystem: "docker",
+					file: "docker-compose.yml",
+					line: 1,
+					specifier: tag,
+					raw: `${id}:${tag}`,
+					version,
+					precision: "exact",
+					extras: [],
+					marker: null,
+					location: "services.llama.image",
+					image,
+				},
+			],
+			versions: [version],
+			agreement: "agreed",
+			precision: "exact",
+			image: { registry: "ghcr.io", repository },
+		};
+	};
+
+	const ghcr = (builds: number[]): Route[] => [
+		[
+			/^https:\/\/ghcr\.io\/v2\/.*tags\/list/,
+			(_url, init) =>
+				new Headers(init?.headers ?? {}).get("authorization")
+					? { body: { tags: builds.map((build) => `server-cuda-b${build}`) } }
+					: CHALLENGE,
+		],
+		[/^https:\/\/auth\.docker\.io\/token/, { body: { token: "T" } }],
+	];
+
+	/** each tag and the build its nightly-tag.txt names, or null for a release without one */
+	const releases = (builds: Record<string, string | null>): Route[] => [
+		[
+			"https://api.github.com/repos/ggml-org/llama.cpp/git/matching-refs/tags/v",
+			{
+				body: Object.keys(builds).map((name) => ({ ref: `refs/tags/${name}` })),
+			},
+		],
+		[
+			/^https:\/\/github\.com\/ggml-org\/llama\.cpp\/releases\/download\/[^/]+\/nightly-tag\.txt$/,
+			(url) => {
+				const build = builds[/download\/([^/]+)\//.exec(url)?.[1] as string];
+				return build ? { text: `${build}\n` } : { status: 404 };
+			},
+		],
+	];
+
+	const look = (dependency: Dependency) =>
+		registry(client(offline), { resolveLatest: false })(dependency);
+
+	const llama = (build: number) =>
+		pinnedAt("ggml-org/llama.cpp", `server-cuda-b${build}`);
+
+	test("counts only the builds a release was cut from as stable", async () => {
+		httpStub([
+			...ghcr([100, 110, 120, 130, 140]),
+			...releases({ "v0.6.0": "b110", "v0.7.0": "b130" }),
+		]);
+		const catalogue = await look(llama(100));
+		expect(catalogue.latestStable?.raw).toBe("server-cuda-b130");
+		expect(catalogue.latestPrerelease?.version).toBe("b140");
+		expect(catalogue.releases).toContain(catalogue.latestStable);
+		expect(catalogue.releases).toContain(catalogue.latestPrerelease);
+		expect(
+			catalogue.releases.find(({ version }) => version === "b120")?.prerelease,
+		).toBe(true);
+		expect(catalogue.notes).toContain("b130 is v0.7.0");
+
+		// b120 lies between, and is a nightly
+		const result = verdict(llama(100), catalogue);
+		expect(result.behind).toBe(true);
+		expect(result.behindBy).toBe(2);
+	});
+
+	test("is not behind on a nightly newer than the latest stable", async () => {
+		httpStub([...ghcr([110, 120]), ...releases({ "v0.6.0": "b110" })]);
+		const catalogue = await look(llama(120));
+		expect(catalogue.latestStable?.version).toBe("b110");
+		expect(verdict(llama(120), catalogue).behind).toBe(false);
+	});
+
+	test("waits for a release's image to be published", async () => {
+		httpStub([
+			...ghcr([110, 130, 140]),
+			...releases({ "v0.7.0": "b130", "v0.8.0": "b150" }),
+		]);
+		const catalogue = await look(llama(110));
+		expect(catalogue.latestStable?.version).toBe("b130");
+		expect(catalogue.notes).toContain(
+			"v0.8.0 is b150, which has no server-cuda-b150 image yet",
+		);
+	});
+
+	test("skips a tag with no release asset, and one that is no version", async () => {
+		const stub = httpStub([
+			...ghcr([110, 120, 130]),
+			...releases({ "v0.1.0": null, "vulkan-fix": "b120", "v0.7.0": "b130" }),
+		]);
+		const catalogue = await look(llama(110));
+		expect(catalogue.latestStable?.version).toBe("b130");
+		expect(
+			catalogue.releases.find(({ version }) => version === "b120")?.prerelease,
+		).toBe(true);
+		expect(stub.urls().some((url) => url.includes("vulkan-fix"))).toBe(false);
+	});
+
+	test("does not count a release candidate as stable", async () => {
+		httpStub([
+			...ghcr([110, 130]),
+			...releases({ "v0.7.0": "b110", "v0.8.0-rc1": "b130" }),
+		]);
+		const catalogue = await look(llama(110));
+		expect(catalogue.latestStable?.version).toBe("b110");
+		expect(catalogue.latestPrerelease?.version).toBe("b130");
+	});
+
+	test("fails rather than call every build stable", async () => {
+		httpStub([
+			...ghcr([110, 130]),
+			[/^https:\/\/api\.github\.com\//, { status: 403 }],
+		]);
+		await expect(look(llama(110))).rejects.toThrow(
+			"GitHub returned 403 listing the releases of ggml-org/llama.cpp",
+		);
+	});
+
+	test("asks GitHub nothing about any other image", async () => {
+		const stub = httpStub(ghcr([110, 130]));
+		const catalogue = await look(pinnedAt("other/server", "server-cuda-b110"));
+		expect(catalogue.latestStable?.version).toBe("b130");
+		expect(stub.urls().some((url) => url.includes("github"))).toBe(false);
 	});
 });
