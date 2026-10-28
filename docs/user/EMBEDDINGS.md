@@ -17,7 +17,28 @@ The models are defined in [`shabti_models.ini`](../../shabti_configurator/shabti
 
 The benchmark runs every shipped model at chunk sizes 128, 256 and 512, on the nano versions of SciFact and NFCorpus in English, Spanish and Japanese, with hybrid search as shipped (see [How hybrid search works](#how-hybrid-search-works)).
 
-<!-- results -->
+| Model | Chunk | SciFact en | SciFact es | SciFact ja | NFCorpus en | NFCorpus es | NFCorpus ja | Mean | Empty |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 | 128 | 0.815 | 0.602 | 0.446 | 0.290 | 0.258 | 0.154 | 0.427 | 1.7% |
+| all-MiniLM-L6-v2 | 256 | 0.777 | 0.622 | 0.449 | 0.307 | 0.257 | 0.148 | 0.427 | 2.0% |
+| all-MiniLM-L6-v2 | 512 | 0.797 | 0.603 | 0.455 | 0.336 | 0.251 | 0.166 | 0.435 | 3.0% |
+| bge-m3 | 128 | 0.725 | 0.724 | 0.712 | 0.309 | 0.265 | 0.274 | 0.502 | 0.0% |
+| bge-m3 | 256 | 0.740 | 0.726 | 0.730 | 0.340 | 0.293 | 0.300 | 0.521 | 0.0% |
+| bge-m3 | 512 | 0.738 | 0.703 | 0.733 | 0.364 | 0.315 | 0.316 | 0.528 | 0.0% |
+| nomic-embed-text-v2-moe | 128 | 0.743 | 0.743 | 0.695 | 0.280 | 0.288 | 0.257 | 0.501 | 2.0% |
+| nomic-embed-text-v2-moe | 256 | 0.759 | 0.748 | 0.724 | 0.311 | 0.278 | 0.284 | 0.517 | 2.0% |
+| nomic-embed-text-v2-moe | 512 | 0.779 | 0.747 | 0.742 | 0.343 | 0.296 | 0.299 | 0.534 | 2.0% |
+| embeddinggemma-300M | 128 | 0.814 | 0.760 | 0.711 | 0.304 | 0.259 | 0.287 | 0.522 | 1.7% |
+| embeddinggemma-300M | 256 | 0.827 | 0.783 | 0.764 | 0.356 | 0.282 | 0.315 | 0.555 | 1.7% |
+| embeddinggemma-300M | 512 | 0.826 | 0.793 | 0.777 | 0.388 | 0.323 | 0.320 | 0.571 | 1.7% |
+| snowflake-arctic-embed-s | 128 | 0.749 | 0.616 | 0.413 | 0.310 | 0.270 | 0.151 | 0.418 | 0.0% |
+| snowflake-arctic-embed-s | 256 | 0.750 | 0.668 | 0.489 | 0.330 | 0.279 | 0.176 | 0.449 | 0.0% |
+| snowflake-arctic-embed-s | 512 | 0.762 | 0.702 | 0.512 | 0.351 | 0.307 | 0.151 | 0.464 | 0.0% |
+| snowflake-arctic-embed-l-v2.0 | 128 | 0.749 | 0.743 | 0.709 | 0.276 | 0.239 | 0.274 | 0.498 | 2.3% |
+| snowflake-arctic-embed-l-v2.0 | 256 | 0.763 | 0.745 | 0.732 | 0.324 | 0.289 | 0.290 | 0.524 | 2.7% |
+| snowflake-arctic-embed-l-v2.0 | 512 | 0.766 | 0.742 | 0.739 | 0.329 | 0.323 | 0.310 | 0.535 | 2.3% |
+
+Empty is the share of answerable questions that got no references.
 
 Caveats:
 
@@ -26,6 +47,12 @@ Caveats:
 - 50 queries is noisy. A difference under about 0.05 is usually not significant.
 - The Spanish and Japanese sets are machine-translated.
 - NFCorpus loses its graded relevance in the nano version, so every listed match counts the same.
+
+### Recommendations
+
+- The current default is `all-MiniLM-L6-v2` at chunk size 128 (Mean 0.427). It is weak outside English: its Japanese scores at 128 (0.446 on SciFact, 0.154 on NFCorpus) are well below the multilingual models.
+- The best configuration in the table is `embeddinggemma-300M` at 512 (Mean 0.571).
+- The table cannot show where hybrid search beats vector search alone, since every run uses hybrid search.
 
 ## What the scores mean
 
@@ -76,20 +103,18 @@ shabti_chunk_size = 256
 
 What we observed:
 
-- Small and English-only models do best at small chunks.
-- Larger multilingual models (embeddinggemma, bge-m3) tend to gain at 256 to 512.
-- A model can return empty answers more often at larger chunk sizes, because of the single 0.6 floor (see [Known limits](#known-limits)).
-
-<!-- chunk-size findings -->
+- Five of the six models score higher at 512 than at 128 (Mean): `embeddinggemma-300M` 0.522 → 0.571, `snowflake-arctic-embed-l-v2.0` 0.498 → 0.535, `nomic-embed-text-v2-moe` 0.501 → 0.534, `bge-m3` 0.502 → 0.528, `snowflake-arctic-embed-s` 0.418 → 0.464.
+- `all-MiniLM-L6-v2` barely changes (Means 0.427 / 0.427 / 0.435 at 128 / 256 / 512), and its Empty rises from 1.7% to 3.0%.
+- Larger chunks also mean longer references, so a gain should be weighed against that.
+- Differences under about 0.05 on a single dataset are within noise (see the caveats above).
 
 ## Multilingual behaviour
 
+- `all-MiniLM-L6-v2` and `snowflake-arctic-embed-s` drop sharply in Japanese. On SciFact at 128, `all-MiniLM-L6-v2` scores 0.815 in English and 0.446 in Japanese, and `snowflake-arctic-embed-s` scores 0.749 and 0.413.
+- `embeddinggemma-300M` at 512 has the best Mean (0.571). It is the best on all six datasets at 512, and tied with `snowflake-arctic-embed-l-v2.0` on NFCorpus Spanish (0.323).
+- `bge-m3` has the flattest scores across languages on SciFact: 0.725 in English, 0.724 in Spanish and 0.712 in Japanese at 128.
 - `all-MiniLM-L6-v2` is English-only in practice.
-- `embeddinggemma-300M` was the strongest in every language tested.
-- `bge-m3` was the most consistent across languages, but scores lower overall.
 - OpenSearch's standard analyser is weak at keyword search in Japanese and Chinese, so hybrid search helps less for those languages.
-
-<!-- multilingual findings -->
 
 ## Trying a candidate model
 
