@@ -68,7 +68,7 @@ docker exec <container> /app/shabti/.venv/bin/python -m asyncio pstree 11
 
 ```
 bun run bench                                        # every shipped embeddings model, the defaults below
-bun run bench --models my-model --chunk-sizes 256    # one candidate model from custom_models.ini
+bun run bench --models my-model --chunk-sizes 256    # one candidate model from shabti_configurator/custom_models.ini
 bun run bench --datasets ./my-dataset                # your own folder of BEIR files
 ```
 
@@ -78,7 +78,7 @@ NanoBEIR datasets, then prints one table of nDCG@10. A folder dataset needs `cor
 
 | option | |
 |---|---|
-| `--models <names...>` | embeddings models from the catalogue, including your own in `custom_models.ini` |
+| `--models <names...>` | embeddings models from the catalogue, including your own in `shabti_configurator/custom_models.ini` |
 | `--chunk-sizes <n...>` | tokens per chunk (default `128 256 512`) |
 | `--datasets <names-or-paths...>` | built-in datasets, such as `nano-scifact-fr`, or BEIR folders |
 | `--compute <cpu\|cuda>` | where llama.cpp runs (default `cuda`) |

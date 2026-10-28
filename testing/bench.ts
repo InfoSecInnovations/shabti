@@ -303,7 +303,7 @@ const program = new Command()
 	)
 	.option(
 		"--models <names...>",
-		"embeddings models to bench, from the catalogue or custom_models.ini (default: every shipped one)",
+		"embeddings models to bench, from the catalogue or shabti_configurator/custom_models.ini (default: every shipped one)",
 	)
 	.option(
 		"--chunk-sizes <n...>",
@@ -321,6 +321,18 @@ const program = new Command()
 	)
 	.option("--keep-up", "leave the last stack running afterwards")
 	.action(async (extra: string[], opts: BenchOptions) => {
+		// folder paths are relative to where the command was run, so they are resolved before the cwd moves
+		const datasets = (opts.datasets ?? DEFAULT_DATASETS).map((value) => {
+			try {
+				return resolveDataset(value);
+			} catch (error) {
+				return usage(error instanceof Error ? error.message : String(error));
+			}
+		});
+
+		// the configurator's dev mode runs from here, so custom_models.ini is read from the same place
+		process.chdir(path.join(REPO, "shabti_configurator"));
+
 		// everything is checked before anything is written or started
 		const catalogue = await getModelsConfig();
 		const models =
@@ -328,11 +340,11 @@ const program = new Command()
 		for (const model of models) {
 			if (!catalogue[model])
 				usage(
-					`${model} is not a model in the catalogue, add it to custom_models.ini to bench it`,
+					`${model} is not a model in the catalogue, add it to shabti_configurator/custom_models.ini to bench it`,
 				);
 			if (!catalogue[model].tags.includes("embeddings"))
 				usage(
-					`${model} is not an embeddings model, so it cannot be benched; check its tags in custom_models.ini`,
+					`${model} is not an embeddings model, so it cannot be benched; check its tags in shabti_configurator/custom_models.ini`,
 				);
 		}
 
@@ -344,14 +356,6 @@ const program = new Command()
 			usage(
 				`--chunk-sizes has to be whole numbers of tokens, 1 or more, not ${badSize}`,
 			);
-
-		const datasets = (opts.datasets ?? DEFAULT_DATASETS).map((value) => {
-			try {
-				return resolveDataset(value);
-			} catch (error) {
-				return usage(error instanceof Error ? error.message : String(error));
-			}
-		});
 
 		if (opts.compute !== "cpu" && opts.compute !== "cuda")
 			usage(`--compute takes cpu or cuda, not ${opts.compute}`);

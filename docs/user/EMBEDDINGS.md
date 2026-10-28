@@ -120,14 +120,14 @@ What we observed:
 
 ### Prerequisites
 
-- A clone of the repo.
+- A clone of the repo, with `bun install` run in the repo root.
 - [bun](https://bun.sh).
 - Docker.
 - An NVIDIA GPU, which is the default (`--compute cuda`). `--compute cpu` works without one, but is much slower.
 
 ### Model definition
 
-Add the candidate as a section in `custom_models.ini` at the repo root, in the same format [MODELS.md](MODELS.md) shows, with `tags = embeddings`:
+Add the candidate as a section in `shabti_configurator/custom_models.ini`, the dev mode location [MODELS.md](MODELS.md) describes, in the same format it shows, with `tags = embeddings`. The bench only reads that location:
 
 ```ini
 [my-model]
