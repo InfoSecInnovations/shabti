@@ -95,6 +95,8 @@ export type Release = {
 	/** as the registry spells it, present only when it differs from `version` */
 	raw?: string;
 	prerelease: boolean;
+	/** the release a build was cut from, for an image tagged by build: "v0.7.0" for b11669 */
+	name?: string;
 	/** why it should not be moved to: "yanked" on PyPI, the deprecation message on npm */
 	withdrawn?: string;
 };

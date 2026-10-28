@@ -73,20 +73,17 @@ export const withStableReleases = (
 	stable: Map<number, Stable>,
 	shape: TagShape,
 ): Catalogue => {
-	const releases = catalogue.releases.map((release) => ({
-		...release,
-		prerelease:
-			stable.get(Number(release.version.slice(1)))?.prerelease ?? true,
-	}));
+	const releases = catalogue.releases.map((release) => {
+		const cut = stable.get(Number(release.version.slice(1)));
+		return cut
+			? { ...release, name: cut.name, prerelease: cut.prerelease }
+			: { ...release, prerelease: true };
+	});
 	// picked from the new list, since verdict() finds the latest by looking it up in the releases
 	const latestStable = releases.findLast(({ prerelease }) => !prerelease);
 	const newest = releases.at(-1);
 
 	const notes = [...catalogue.notes];
-	if (latestStable)
-		notes.push(
-			`${latestStable.version} is ${stable.get(Number(latestStable.version.slice(1)))?.name}`,
-		);
 	const [newestBuild, newestStable] =
 		[...stable]
 			.filter(([, { prerelease }]) => !prerelease)

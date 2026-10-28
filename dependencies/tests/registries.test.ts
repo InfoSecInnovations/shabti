@@ -624,7 +624,10 @@ describe("stable releases of an image tagged by build", () => {
 		expect(
 			catalogue.releases.find(({ version }) => version === "b120")?.prerelease,
 		).toBe(true);
-		expect(catalogue.notes).toContain("b130 is v0.7.0");
+		expect(catalogue.latestStable?.name).toBe("v0.7.0");
+		expect(
+			catalogue.releases.find(({ version }) => version === "b120")?.name,
+		).toBeUndefined();
 
 		// b120 lies between, and is a nightly
 		const result = verdict(llama(100), catalogue);

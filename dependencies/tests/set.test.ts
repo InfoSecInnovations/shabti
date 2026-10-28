@@ -37,6 +37,8 @@ dependencies = ["fastapi==0.136.0"]
 const COMPOSE = `services:
   uv-lock:
     image: astral/uv:0.9.6-python3.14-trixie-slim
+  llama-cpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b11669
 `;
 
 const BUN_DOCKERFILE = `FROM debian:13-slim
@@ -72,6 +74,15 @@ const CATALOGUES: Record<string, Catalogue> = {
 	bun: catalogue(["1.3.10", "1.3.11", "1.3.12"]),
 	uv: catalogue(["0.11.1", "0.11.7", "0.12.0"]),
 	"oven/bun": catalogue(["1.3.11", "1.3.12"]),
+	"ghcr.io/ggml-org/llama.cpp": {
+		releases: [
+			{ version: "b11669", prerelease: false, name: "v0.7.0" },
+			{ version: "b11700", prerelease: true },
+			{ version: "b11960", prerelease: false, name: "v0.8.0" },
+		],
+		latestStable: { version: "b11960", prerelease: false, name: "v0.8.0" },
+		notes: [],
+	},
 };
 
 /** the installed tools, so no test asks this machine what it has */
@@ -247,6 +258,20 @@ describe("a name with no version takes the latest", () => {
 			setting(["astral/uv"], { lock: false, literalTag: true }),
 		).rejects.toThrow(/--tag/);
 	});
+});
+
+describe("a build named by the release it was cut from", () => {
+	for (const spec of ["v0.8.0", "0.8.0"])
+		test(spec, async () => {
+			const result = await setting([`ghcr.io/ggml-org/llama.cpp@${spec}`], {
+				lock: false,
+			});
+
+			expect(result.changes[0]?.to).toBe("b11960");
+			expect(await repo.read("docker-compose.yml")).toContain(
+				"ghcr.io/ggml-org/llama.cpp:server-cuda-b11960",
+			);
+		});
 });
 
 describe("a pin already at the version asked for", () => {

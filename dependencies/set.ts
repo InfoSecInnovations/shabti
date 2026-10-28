@@ -137,7 +137,10 @@ const matching = (
 	requested: string,
 ): Release | undefined => {
 	const exact = catalogue.releases.find(
-		(release) => release.version === requested || release.raw === requested,
+		(release) =>
+			release.version === requested ||
+			release.raw === requested ||
+			release.name === requested,
 	);
 	if (exact) return exact;
 	if (ecosystem === "node") {
@@ -148,10 +151,13 @@ const matching = (
 	}
 	const wanted = parse(requested);
 	if (!wanted) return undefined;
-	return catalogue.releases.find((release) => {
-		const have = parse(release.version);
-		return have && compare(have, wanted) === 0;
-	});
+	// a build is named by the release it was cut from, so 0.8.0 finds the build v0.8.0 names
+	return catalogue.releases.find((release) =>
+		[release.version, release.name].some((text) => {
+			const have = text ? parse(text) : null;
+			return have && compare(have, wanted) === 0;
+		}),
+	);
 };
 
 const suggestions = (catalogue: Catalogue, requested: string) =>

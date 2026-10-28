@@ -155,7 +155,9 @@ the newest plain version is gives `4.0.0`, and `4.0.0-full` exists.
 `ghcr.io/ggml-org/llama.cpp` publishes an image for every build but marks its stable releases only on
 GitHub, as `vX.Y.Z` tags whose `nightly-tag.txt` asset names the build they were cut from. Its pin stays
 a build, and only those builds count as stable: every other build is listed under `prerelease
-available`, and `bun run deps:set -- ghcr.io/ggml-org/llama.cpp` moves to the newest stable. A release
+available`, and `bun run deps:set -- ghcr.io/ggml-org/llama.cpp` moves to the newest stable. Rows name
+the release beside the build, `server-cuda-b11669 (v0.7.0) -> server-cuda-b11960 (v0.8.0)`, and
+`deps:set` takes either: `ghcr.io/ggml-org/llama.cpp@v0.8.0` writes `server-cuda-b11960`. A release
 whose image is not published yet is skipped with a note. Other images tagged this way are added to
 `STABLE_RELEASES` in [dependencies/registries/github.ts](../../dependencies/registries/github.ts).
 

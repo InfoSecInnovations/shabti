@@ -17,7 +17,13 @@ import type { Options } from "./http";
 import { group, readPins } from "./read";
 import { type Tagged, byEcosystem, tabulate, where } from "./render";
 import { systemTools } from "./system";
-import type { Dependency, Freshness, Precision, Release } from "./types";
+import type {
+	Catalogue,
+	Dependency,
+	Freshness,
+	Precision,
+	Release,
+} from "./types";
 
 export type Report = {
 	found: Freshness[];
@@ -93,9 +99,17 @@ export const check = async ({
 /**
  * What the pin says, spelled the way a person would recognise it. A docker version is only the slot
  * inside its tag, so 0.11.1 is shown as 0.11.1-python3.14-trixie-slim: that is what is written in the
- * file, and what Docker Hub would call it.
+ * file, and what Docker Hub would call it. A build is followed by the release it was cut from, when it
+ * was cut for one, since b11669 alone says nothing about which release is running.
  */
-const pinned = (dependency: Dependency) => {
+const pinned = (dependency: Dependency, catalogue?: Catalogue) => {
+	const named = (specifier: string) =>
+		withName(
+			specifier,
+			catalogue?.releases.find(
+				(release) => (release.raw ?? release.version) === specifier,
+			),
+		);
 	const shown =
 		dependency.ecosystem === "docker"
 			? [
@@ -104,16 +118,19 @@ const pinned = (dependency: Dependency) => {
 							.map((pin) => pin.specifier)
 							.filter((specifier) => !!specifier),
 					),
-				]
+				].map(named)
 			: dependency.versions;
 	return shown.length
 		? shown.join(", ")
 		: dependency.occurrences[0]?.specifier || "-";
 };
 
-/** the whole tag rather than the substitutable part of it; `deps:set` accepts either */
+const withName = (shown: string, release?: Release) =>
+	release?.name ? `${shown} (${release.name})` : shown;
+
+/** the whole tag rather than the substitutable part of it; `deps:set` accepts either, or a release name */
 const available = (release?: Release) =>
-	release && (release.raw ?? release.version);
+	release && withName(release.raw ?? release.version, release);
 
 /** a system tool lives in no file, so its row says which executable was asked */
 const files = (dependency: Dependency) =>
@@ -182,7 +199,10 @@ export const render = (report: Report, showAll = false) => {
 		ecosystem: entry.dependency.ecosystem,
 		left: entry.dependency.name,
 		middle: versions(
-			pinned(entry.dependency),
+			pinned(
+				entry.dependency,
+				entry.status === "ok" ? entry.catalogue : undefined,
+			),
 			entry.status === "ok" && entry.verdict.behind
 				? available(entry.catalogue.latestStable)
 				: undefined,
@@ -216,7 +236,7 @@ export const render = (report: Report, showAll = false) => {
 							ecosystem: entry.dependency.ecosystem,
 							left: entry.dependency.name,
 							middle: versions(
-								pinned(entry.dependency),
+								pinned(entry.dependency, entry.catalogue),
 								available(entry.catalogue.latestPrerelease),
 							),
 							right: files(entry.dependency),

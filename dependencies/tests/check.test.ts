@@ -122,6 +122,45 @@ describe("docker rows show whole tags", () => {
 			expect(text).not.toContain(`${slot} -> ${latestSlot}`);
 		});
 
+	test("a build names the release it was cut from", () => {
+		const name = "ghcr.io/ggml-org/llama.cpp";
+		const pinned: Release = {
+			version: "b11669",
+			prerelease: false,
+			name: "v0.7.0",
+		};
+		const latest: Release = {
+			version: "b11960",
+			raw: "server-cuda-b11960",
+			prerelease: false,
+			name: "v0.8.0",
+		};
+		const text = render(
+			report([
+				{
+					status: "ok",
+					dependency: dependency({
+						id: name,
+						name,
+						versions: ["b11669"],
+						occurrences: [
+							pin({ id: name, name, specifier: "server-cuda-b11669" }),
+						],
+					}),
+					catalogue: {
+						releases: [{ ...pinned, raw: "server-cuda-b11669" }, latest],
+						latestStable: latest,
+						notes: [],
+					},
+					verdict: { behind: true, behindBy: 1 },
+				},
+			]),
+		);
+		expect(text).toContain(
+			"server-cuda-b11669 (v0.7.0) -> server-cuda-b11960 (v0.8.0)",
+		);
+	});
+
 	test("an unlabelled tag needs no rewriting to be recognisable", () => {
 		const text = render(
 			report([
